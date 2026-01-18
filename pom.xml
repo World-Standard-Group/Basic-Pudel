@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>worldstandard.group</groupId>
+    <artifactId>default-pudel</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>Basic Pudel</name>
+    <description>Basic Command for legacy Pudel &amp; Eli</description>
+
+    <modules>
+        <module>pudel-music</module>
+    </modules>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://raw.githubusercontent.com/World-Standard-Group/Basic-Pudel/refs/heads/main/LICENSE</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>zazalng</id>
+            <name>Napapon Kamanee</name>
+            <email>kenghide@hotmail.com</email>
+            <organization>World Standard Group</organization>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/World-Standard-Group/Basic-Pudel.git</connection>
+        <developerConnection>scm:git:git@github.com:World-Standard-Group/Basic-Pudel.git</developerConnection>
+        <url>https://github.com/World-Standard-Group/Basic-Pudel.git</url>
+    </scm>
+
+    <properties>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <jda.version>6.3.0</jda.version>
+        <pudel.version>1.0.0</pudel.version>
+        <log.version>2.0.17</log.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>net.dv8tion</groupId>
+            <artifactId>JDA</artifactId>
+            <version>${jda.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>worldstandard.group</groupId>
+            <artifactId>pudel-api</artifactId>
+            <version>${pudel.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${log.version}</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>
