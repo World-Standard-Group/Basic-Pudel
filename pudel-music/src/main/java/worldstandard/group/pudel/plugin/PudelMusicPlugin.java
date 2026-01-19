@@ -44,8 +44,6 @@ import worldstandard.group.pudel.api.event.EventHandler;
 import worldstandard.group.pudel.api.event.Listener;
 
 import java.awt.Color;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.*;
@@ -65,7 +63,7 @@ import java.util.regex.Pattern;
  * - Multi-guild support
  *
  * @author Zazalng
- * @version 1.0.0
+ * @version 1.0.1
  */
 public class PudelMusicPlugin extends SimplePlugin implements Listener {
     // ==================== STATE ENUMS ====================
@@ -131,7 +129,7 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
                 .setAllowDirectVideoIds(true)
                 .setRemoteCipher("https://cipher.kikkia.dev/", "", "Pudel v1.0.0");
 
-        YoutubeAudioSourceManager ytSourceManager = new YoutubeAudioSourceManager(ytk, new Web());
+        YoutubeAudioSourceManager ytSourceManager = new YoutubeAudioSourceManager(ytk, new AndroidVr());
 
         this.playerManager.registerSourceManager(ytSourceManager);
 
@@ -439,7 +437,10 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
         }
 
         String skippedTitle = getTrackTitle(current);
-        manager.scheduler.nextTrack();
+
+        // CHANGE: Use .skip() instead of .nextTrack()
+        // This ensures the current song is saved to history before the next one starts
+        manager.scheduler.skip();
 
         sendEmbed(ctx, "⏭️ Skipped", "Skipped: " + skippedTitle, Color.YELLOW, null);
     }
@@ -532,7 +533,7 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
 
             GuildMusicManager manager = getGuildMusicManager(guild);
             manager.scheduler.queue(selected);
-
+            connectToVoiceFromEvent(event, guild);
             setState(guild.getIdLong(), CommandState.IDLE);
 
             // Update the message
@@ -667,6 +668,22 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
         }
     }
 
+    private void connectToVoiceFromEvent(MessageReactionAddEvent event, Guild guild) {
+        Member member = event.getMember();
+        if (member == null) return;
+
+        GuildVoiceState voiceState = member.getVoiceState();
+        if (voiceState == null || !voiceState.inAudioChannel()) return;
+
+        VoiceChannel channel = voiceState.getChannel().asVoiceChannel();
+        long guildId = guild.getIdLong();
+        VoiceManager vm = getContext().getVoiceManager();
+
+        if (!vm.isConnected(guildId)) {
+            vm.connect(guildId, channel.getIdLong());
+        }
+    }
+
     private boolean validateGuildContext(CommandContext ctx) {
         if (!ctx.isFromGuild()) {
             ctx.reply("❌ This command can only be used in a server!");
@@ -770,18 +787,40 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
     }
 
     private String createProgressBar(AudioTrack track) {
-        BigDecimal position = new BigDecimal(track.getPosition());
-        BigDecimal duration = new BigDecimal(track.getDuration());
-
+        long pos = track.getPosition();
+        long dur = track.getDuration();
         int totalBlocks = 14;
-        int filledBlocks = position.divide(duration, 0, RoundingMode.HALF_UP).multiply(new BigDecimal(totalBlocks)).intValue();
-        String bar = formatDuration(position.longValueExact()) + " " +
-                "▬".repeat(Math.max(0, filledBlocks)) +
-                "🔘" +
-                "▬".repeat(Math.max(0, totalBlocks - filledBlocks)) +
-                " " + formatDuration(duration.longValueExact());
 
-        return bar;
+        // Calculate how many blocks should be filled
+        // (Current Position / Total Duration) * Total Blocks
+        int filledBlocks = 0;
+        if (dur > 0) {
+            filledBlocks = (int) ((double) pos / dur * totalBlocks);
+        }
+
+        // Ensure filledBlocks stays within bounds [0, totalBlocks]
+        filledBlocks = Math.max(0, Math.min(totalBlocks, filledBlocks));
+
+        StringBuilder bar = new StringBuilder();
+        bar.append(formatDuration(pos)).append(" ");
+
+        // Build the bar
+        for (int i = 0; i < totalBlocks; i++) {
+            if (i == filledBlocks) {
+                bar.append("🔘");
+            } else {
+                bar.append("▬");
+            }
+        }
+
+        // If the song is at the very end, make sure the button doesn't disappear
+        if (filledBlocks == totalBlocks) {
+            bar.append("🔘");
+        }
+
+        bar.append(" ").append(formatDuration(dur));
+
+        return bar.toString();
     }
 
     private boolean isNumeric(String str) {
@@ -850,6 +889,7 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
             QUEUE
         }
         private final Queue<AudioTrack> queue = new LinkedList<>();
+        // Standard history stack
         private final Deque<AudioTrack> history = new ArrayDeque<>();
 
         private LoopMode loopMode = LoopMode.OFF;
@@ -867,61 +907,47 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
             }
         }
 
-        public void nextTrack() {
-            AudioTrack next = getNextTrack();
-
-            if (next == null) return;
-
-            player.startTrack(next, false);
-        }
-
-        private AudioTrack getNextTrack() {
-            AudioTrack current = player.getPlayingTrack();
-
-            if (current != null) {
-                history.push(current);
+        // UPDATED: Accept the previous track explicitly
+        public void nextTrack(AudioTrack lastTrack) {
+            // If a track just finished, save it to history
+            if (lastTrack != null) {
+                history.push(lastTrack);
             }
 
             if (queue.isEmpty()) {
                 if (loopMode == LoopMode.QUEUE && !history.isEmpty()) {
+                    // Refill queue from history
                     while (!history.isEmpty()) {
+                        // clone() is required because the old track object is "dead"
                         queue.offer(history.removeLast().makeClone());
                     }
                 } else {
-                    return null;
+                    // Queue is empty and no loop
+                    return;
                 }
             }
 
-            if (queue.isEmpty()) return null;
+            if (queue.isEmpty()) return;
 
-            if (shuffle) {
-                return pollRandom();
-            }
-
-            return queue.poll();
+            AudioTrack nextTrack = shuffle ? pollRandom() : queue.poll();
+            player.startTrack(nextTrack, false);
         }
 
         private AudioTrack pollRandom() {
             int index = new Random().nextInt(queue.size());
             int i = 0;
-
             for (AudioTrack track : queue) {
                 if (i++ == index) {
                     queue.remove(track);
                     return track;
                 }
             }
-
             return queue.poll();
         }
 
         public void skip() {
-            if (player.getPlayingTrack() == null) return;
-            nextTrack();
-        }
-
-        public String getModeString() {
-            return "Loop: " + loopMode.name() + ", Shuffle: " + shuffle;
+            // Pass the currently playing track to history before skipping
+            nextTrack(player.getPlayingTrack());
         }
 
         public void toggleLoop(){
@@ -936,6 +962,10 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
             shuffle = !shuffle;
         }
 
+        public String getModeString() {
+            return "Loop: " + loopMode.name() + ", Shuffle: " + shuffle;
+        }
+
         @Override
         public void onTrackEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason) {
             if (!endReason.mayStartNext) return;
@@ -945,7 +975,8 @@ public class PudelMusicPlugin extends SimplePlugin implements Listener {
                 return;
             }
 
-            nextTrack();
+            // FIX: Pass the track that just ended so it gets added to history
+            nextTrack(track);
         }
     }
 

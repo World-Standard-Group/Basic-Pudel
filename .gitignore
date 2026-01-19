@@ -38,3 +38,4 @@ build/
 ### Mac OS ###
 .DS_Store
 /.idea/
+/pudel-music/dependency-reduced-pom.xml
