@@ -13,6 +13,7 @@
 
     <modules>
         <module>pudel-music</module>
+        <module>pudel-message</module>
     </modules>
 
     <licenses>

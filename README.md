@@ -24,7 +24,7 @@ To get started with Pudel, follow these steps:
 
 1. Clone the [Pudel](https://github.com/World-Standard-Group/Pudel-Spring-Boot) repository to your local machine.
 2. Ensure you have Java 25 installed on your system.
-3. Follow up guides in the repository to set up and configure Pudel according to your needs.
+3. Follow guides in the repository to set up and configure Pudel according to your needs.
 4. Run the bot, Pudel had built-in command mostly related to Pudel own application control/settings.
 5. Clone this repository to your local machine.
 6. `mvn clean package` on needed module as .jar files.
