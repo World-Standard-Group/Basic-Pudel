@@ -39,3 +39,4 @@ build/
 .DS_Store
 /.idea/
 /pudel-music/dependency-reduced-pom.xml
+/plugin-development.md

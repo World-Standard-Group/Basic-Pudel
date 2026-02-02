@@ -4,12 +4,13 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>worldstandard.group</groupId>
+    <groupId>group.worldstandard</groupId>
     <artifactId>default-pudel</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <packaging>pom</packaging>
     <name>Basic Pudel</name>
-    <description>Basic Command for legacy Pudel &amp; Eli</description>
+    <description>Basic Command for Pudel &amp; legacy Eli</description>
+    <url>https://github.com/World-Standard-Group/Basic-Pudel</url>
 
     <modules>
         <module>pudel-music</module>
@@ -29,6 +30,7 @@
             <name>Napapon Kamanee</name>
             <email>kenghide@hotmail.com</email>
             <organization>World Standard Group</organization>
+            <organizationUrl>https://github.com/World-Standard-Group</organizationUrl>
         </developer>
     </developers>
 
@@ -44,7 +46,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <jda.version>6.3.0</jda.version>
-        <pudel.version>1.0.0</pudel.version>
+        <pudel.version>1.1.0</pudel.version>
         <log.version>2.0.17</log.version>
     </properties>
 
@@ -56,7 +58,7 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>worldstandard.group</groupId>
+            <groupId>group.worldstandard</groupId>
             <artifactId>pudel-api</artifactId>
             <version>${pudel.version}</version>
             <scope>provided</scope>
