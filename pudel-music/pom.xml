@@ -7,7 +7,7 @@
     <parent>
         <groupId>group.worldstandard</groupId>
         <artifactId>default-pudel</artifactId>
-        <version>1.1.0</version>
+        <version>1.1.1</version>
     </parent>
 
     <artifactId>pudel-music</artifactId>

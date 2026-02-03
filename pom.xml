@@ -6,7 +6,7 @@
 
     <groupId>group.worldstandard</groupId>
     <artifactId>default-pudel</artifactId>
-    <version>1.1.0</version>
+    <version>1.1.1</version>
     <packaging>pom</packaging>
     <name>Basic Pudel</name>
     <description>Basic Command for Pudel &amp; legacy Eli</description>

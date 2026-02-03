@@ -16,7 +16,7 @@
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
  */
-package worldstandard.group.pudel.plugin;
+package group.worldstandard.pudel.plugin;
 
 import group.worldstandard.pudel.api.SimplePlugin;
 import group.worldstandard.pudel.api.interaction.*;
