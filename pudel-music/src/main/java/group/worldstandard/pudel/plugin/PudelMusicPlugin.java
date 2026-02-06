@@ -26,7 +26,7 @@ import com.sedmelluq.discord.lavaplayer.track.*;
 import com.sedmelluq.discord.lavaplayer.track.playback.AudioFrame;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import dev.lavalink.youtube.YoutubeSourceOptions;
-import dev.lavalink.youtube.clients.AndroidVr;
+import dev.lavalink.youtube.clients.*;
 import group.worldstandard.pudel.api.PluginContext;
 import group.worldstandard.pudel.api.annotation.*;
 import group.worldstandard.pudel.api.audio.VoiceManager;
@@ -59,7 +59,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Plugin(
         name = "Pudel Music",
         version = "2.0.1",
-        author = "Janu",
+        author = "Zazalng",
         description = "Advanced music playback with slash commands, interactive buttons, and database persistence"
 )
 public class PudelMusicPlugin {
@@ -124,9 +124,16 @@ public class PudelMusicPlugin {
                 .setAllowSearch(true)
                 .setAllowDirectPlaylistIds(true)
                 .setAllowDirectVideoIds(true)
-                .setRemoteCipher("https://cipher.kikkia.dev/", "", "Pudel v2.0.0");
+                .setRemoteCipher("https://cipher.kikkia.dev/", "", "Pudel v2.0.0-rc5");
 
-        YoutubeAudioSourceManager ytSourceManager = new YoutubeAudioSourceManager(ytk, new AndroidVr());
+        YoutubeAudioSourceManager ytSourceManager = new YoutubeAudioSourceManager(
+                ytk,
+                new WebWithThumbnail(),
+                new MWebWithThumbnail(),
+                new AndroidMusicWithThumbnail(),
+                new AndroidVrWithThumbnail(),
+                new TvHtml5EmbeddedWithThumbnail()
+        );
         this.playerManager.registerSourceManager(ytSourceManager);
 
         AudioSourceManagers.registerRemoteSources(
@@ -142,7 +149,6 @@ public class PudelMusicPlugin {
         // It is automatically handled by the repository for identity/migrations.
 
         TableSchema queueSchema = TableSchema.builder("music_queue")
-                // .column("id") -> REMOVED (Reserved)
                 .column("guild_id", ColumnType.BIGINT, false)
                 .column("user_id", ColumnType.BIGINT, false)
                 .column("track_url", ColumnType.TEXT, false)
@@ -155,7 +161,6 @@ public class PudelMusicPlugin {
                 .build();
 
         TableSchema historySchema = TableSchema.builder("music_history")
-                // .column("id") -> REMOVED (Reserved)
                 .column("guild_id", ColumnType.BIGINT, false)
                 .column("user_id", ColumnType.BIGINT, false)
                 .column("track_url", ColumnType.TEXT, false)
@@ -193,7 +198,7 @@ public class PudelMusicPlugin {
         }
 
         String query = queryOption.getAsString();
-        event.deferReply().queue();
+        event.deferReply().setEphemeral(true).queue();
         loadAndPlay(event, query);
     }
 
@@ -222,7 +227,7 @@ public class PudelMusicPlugin {
         GuildMusicManager manager = getGuildMusicManager(event.getGuild());
         boolean paused = !manager.player.isPaused();
         manager.player.setPaused(paused);
-        event.reply(paused ? "⏸️ Paused playback" : "▶️ Resumed playback").queue();
+        event.reply(paused ? "⏸️ Paused playback" : "▶️ Resumed playback").setEphemeral(true).queue();
     }
 
     @SlashCommand(name = "leave", description = "Disconnect from voice channel")
@@ -236,7 +241,7 @@ public class PudelMusicPlugin {
         clearQueueFromDatabase(guildId);
 
         context.getVoiceManager().disconnect(guildId);
-        event.reply("👋 Disconnected from voice channel").queue();
+        event.reply("👋 Disconnected from voice channel").setEphemeral(true).queue();
     }
 
     @SlashCommand(
@@ -256,7 +261,7 @@ public class PudelMusicPlugin {
             return;
         }
         getGuildMusicManager(event.getGuild()).player.setVolume(volume);
-        event.reply(String.format("🔊 Volume set to %d%%", volume)).queue();
+        event.reply(String.format("🔊 Volume set to %d%%", volume)).setEphemeral(true).queue();
     }
 
     @SlashCommand(
@@ -289,7 +294,7 @@ public class PudelMusicPlugin {
         } else {
             manager.scheduler.toggleLoop();
         }
-        event.reply("🔄 Loop mode: **" + manager.scheduler.loopMode.name() + "**").queue();
+        event.reply("🔄 Loop mode: **" + manager.scheduler.loopMode.name() + "**").setEphemeral(true).queue();
     }
 
     @SlashCommand(
@@ -325,7 +330,7 @@ public class PudelMusicPlugin {
             case "shuffle" -> {
                 if (!validateMusicControl(event)) return;
                 manager.scheduler.toggleShuffle();
-                event.reply("🔀 Shuffle " + (manager.scheduler.shuffle ? "enabled" : "disabled")).queue();
+                event.reply("🔀 Shuffle " + (manager.scheduler.shuffle ? "enabled" : "disabled")).setEphemeral(true).queue();
             }
             case "remove" -> handleQueueRemove(event, manager);
             case "move" -> handleQueueMove(event, manager);
@@ -351,7 +356,7 @@ public class PudelMusicPlugin {
                 .list();
 
         if (history.isEmpty()) {
-            event.reply("📜 No history found.").queue();
+            event.reply("📜 No history found.").setEphemeral(true).queue();
             return;
         }
 
@@ -360,7 +365,7 @@ public class PudelMusicPlugin {
             HistoryEntry entry = history.get(i);
             sb.append(String.format("%d. **%s** (`%s`)\n", i + 1, entry.trackTitle, formatDuration(entry.trackDuration)));
         }
-        event.replyEmbeds(new EmbedBuilder().setTitle("📜 Music History").setDescription(sb.toString()).setColor(Color.ORANGE).build()).queue();
+        event.replyEmbeds(new EmbedBuilder().setTitle("📜 Music History").setDescription(sb.toString()).setColor(Color.ORANGE).build()).setEphemeral(true).queue();
     }
 
     // ==================== TEXT COMMANDS ====================
@@ -454,14 +459,14 @@ public class PudelMusicPlugin {
         try {
             QueueEntry entry = new QueueEntry();
             // Do NOT set entry.id - it is reserved/auto-generated
-            entry.guildId = guildId;
-            entry.userId = userId;
-            entry.trackUrl = track.getInfo().uri;
-            entry.trackTitle = track.getInfo().title;
-            entry.trackAuthor = track.getInfo().author;
-            entry.trackDuration = track.getDuration();
-            entry.position = position;
-            entry.addedAt = Instant.now(); // Strict type matching for ColumnType.TIMESTAMP
+            entry.setGuildId(guildId);
+            entry.setUserId(userId);
+            entry.setTrackUrl(track.getInfo().uri);
+            entry.setTrackTitle(track.getInfo().title);
+            entry.setTrackAuthor(track.getInfo().author);
+            entry.setTrackDuration(track.getDuration());
+            entry.setPosition(position);
+            entry.setAddedAt(Instant.now()); // Strict type matching for ColumnType.TIMESTAMP
 
             queueRepository.save(entry);
         } catch (Exception e) {
@@ -473,13 +478,13 @@ public class PudelMusicPlugin {
         try {
             HistoryEntry entry = new HistoryEntry();
             // Do NOT set entry.id
-            entry.guildId = guildId;
-            entry.userId = userId;
-            entry.trackUrl = track.getInfo().uri;
-            entry.trackTitle = track.getInfo().title;
-            entry.trackAuthor = track.getInfo().author;
-            entry.trackDuration = track.getDuration();
-            entry.playedAt = Instant.now(); // Strict type matching
+            entry.setGuildId(guildId);
+            entry.setUserId(userId);
+            entry.setTrackUrl(track.getInfo().uri);
+            entry.setTrackTitle(track.getInfo().title);
+            entry.setTrackAuthor(track.getInfo().author);
+            entry.setTrackDuration(track.getDuration());
+            entry.setPlayedAt(Instant.now()); // Strict type matching
 
             historyRepository.save(entry);
         } catch (Exception e) {
@@ -526,19 +531,19 @@ public class PudelMusicPlugin {
                         manager.scheduler.queue(track);
                         saveToQueue(event.getGuild().getIdLong(), event.getUser().getIdLong(), track, manager.scheduler.queue.size());
                     }
-                    event.getHook().sendMessage("✅ Added playlist: **" + playlist.getName() + "**").queue();
+                    event.getHook().sendMessage("✅ Added playlist: **" + playlist.getName() + "**").setEphemeral(true).queue();
                     connectToVoice(event.getGuild(), event.getMember());
                 }
             }
 
             @Override
             public void noMatches() {
-                event.getHook().sendMessage("❌ No matches found.").queue();
+                event.getHook().sendMessage("❌ No matches found.").setEphemeral(true).queue();
             }
 
             @Override
             public void loadFailed(FriendlyException exception) {
-                event.getHook().sendMessage("❌ Load failed: " + exception.getMessage()).queue();
+                event.getHook().sendMessage("❌ Load failed: " + exception.getMessage()).setEphemeral(true).queue();
             }
         });
     }
@@ -609,14 +614,14 @@ public class PudelMusicPlugin {
             list.remove(pos - 1);
             manager.scheduler.queue.clear();
             manager.scheduler.queue.addAll(list);
-            event.reply("Removed track at " + pos).queue();
+            event.reply("Removed track at " + pos).setEphemeral(true).queue();
         } else {
             event.reply("Invalid position").setEphemeral(true).queue();
         }
     }
 
     private void handleQueueMove(SlashCommandInteractionEvent event, GuildMusicManager manager) {
-        event.reply("Moved track (Implementation omitted).").queue();
+        event.reply("Moved track (Implementation omitted).").setEphemeral(true).queue();
     }
 
     private boolean validateGuildAndVoice(SlashCommandInteractionEvent event) {
@@ -667,27 +672,165 @@ public class PudelMusicPlugin {
     // ==================== POJOS (STRICT TYPES) ====================
 
     // 'id' field exists for mapping, but is managed by system (reserved)
+    @Entity
     public static class QueueEntry {
-        public Long id; // Nullable/Managed by DB
-        public long guildId;
-        public long userId;
-        public String trackUrl;
-        public String trackTitle;
-        public String trackAuthor;
-        public long trackDuration;
-        public int position;
-        public Instant addedAt; // Strict Instant for TIMESTAMP
+        private Long id; // Nullable/Managed by DB
+        private long guildId;
+        private long userId;
+        private String trackUrl;
+        private String trackTitle;
+        private String trackAuthor;
+        private long trackDuration;
+        private int position;
+        private Instant addedAt; // Strict Instant for TIMESTAMP
+
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        public long getGuildId() {
+            return guildId;
+        }
+
+        public void setGuildId(long guildId) {
+            this.guildId = guildId;
+        }
+
+        public long getUserId() {
+            return userId;
+        }
+
+        public void setUserId(long userId) {
+            this.userId = userId;
+        }
+
+        public String getTrackUrl() {
+            return trackUrl;
+        }
+
+        public void setTrackUrl(String trackUrl) {
+            this.trackUrl = trackUrl;
+        }
+
+        public String getTrackTitle() {
+            return trackTitle;
+        }
+
+        public void setTrackTitle(String trackTitle) {
+            this.trackTitle = trackTitle;
+        }
+
+        public String getTrackAuthor() {
+            return trackAuthor;
+        }
+
+        public void setTrackAuthor(String trackAuthor) {
+            this.trackAuthor = trackAuthor;
+        }
+
+        public long getTrackDuration() {
+            return trackDuration;
+        }
+
+        public void setTrackDuration(long trackDuration) {
+            this.trackDuration = trackDuration;
+        }
+
+        public int getPosition() {
+            return position;
+        }
+
+        public void setPosition(int position) {
+            this.position = position;
+        }
+
+        public Instant getAddedAt() {
+            return addedAt;
+        }
+
+        public void setAddedAt(Instant addedAt) {
+            this.addedAt = addedAt;
+        }
     }
 
+    @Entity
     public static class HistoryEntry {
-        public Long id; // Nullable/Managed by DB
-        public long guildId;
-        public long userId;
-        public String trackUrl;
-        public String trackTitle;
-        public String trackAuthor;
-        public long trackDuration;
-        public Instant playedAt; // Strict Instant for TIMESTAMP
+        private Long id; // Nullable/Managed by DB
+        private long guildId;
+        private long userId;
+        private String trackUrl;
+        private String trackTitle;
+        private String trackAuthor;
+        private long trackDuration;
+        private Instant playedAt; // Strict Instant for TIMESTAMP
+
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        public long getGuildId() {
+            return guildId;
+        }
+
+        public void setGuildId(long guildId) {
+            this.guildId = guildId;
+        }
+
+        public long getUserId() {
+            return userId;
+        }
+
+        public void setUserId(long userId) {
+            this.userId = userId;
+        }
+
+        public String getTrackUrl() {
+            return trackUrl;
+        }
+
+        public void setTrackUrl(String trackUrl) {
+            this.trackUrl = trackUrl;
+        }
+
+        public String getTrackTitle() {
+            return trackTitle;
+        }
+
+        public void setTrackTitle(String trackTitle) {
+            this.trackTitle = trackTitle;
+        }
+
+        public String getTrackAuthor() {
+            return trackAuthor;
+        }
+
+        public void setTrackAuthor(String trackAuthor) {
+            this.trackAuthor = trackAuthor;
+        }
+
+        public long getTrackDuration() {
+            return trackDuration;
+        }
+
+        public void setTrackDuration(long trackDuration) {
+            this.trackDuration = trackDuration;
+        }
+
+        public Instant getPlayedAt() {
+            return playedAt;
+        }
+
+        public void setPlayedAt(Instant playedAt) {
+            this.playedAt = playedAt;
+        }
     }
 
     // ==================== INNER CLASSES ====================
