@@ -124,16 +124,16 @@ public class PudelMusicPlugin {
                 .setAllowSearch(true)
                 .setAllowDirectPlaylistIds(true)
                 .setAllowDirectVideoIds(true)
-                .setRemoteCipher("https://cipher.kikkia.dev/", "", "Pudel v2.0.0-rc5");
+                .setRemoteCipher("https://cipher.kikkia.dev", "", "Pudel v2.0.0-rc5");
 
         YoutubeAudioSourceManager ytSourceManager = new YoutubeAudioSourceManager(
                 ytk,
                 new WebWithThumbnail(),
                 new MWebWithThumbnail(),
                 new AndroidMusicWithThumbnail(),
-                new AndroidVrWithThumbnail(),
-                new TvHtml5EmbeddedWithThumbnail()
+                new AndroidVrWithThumbnail()
         );
+
         this.playerManager.registerSourceManager(ytSourceManager);
 
         AudioSourceManagers.registerRemoteSources(
