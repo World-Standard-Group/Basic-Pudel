@@ -3,51 +3,20 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <parent>
         <groupId>group.worldstandard</groupId>
         <artifactId>default-pudel</artifactId>
         <version>1.1.1</version>
     </parent>
 
-    <artifactId>pudel-music</artifactId>
-    <name>Pudel's Music</name>
-    <description>Music command for Pudel</description>
-    <packaging>jar</packaging>
+    <artifactId>pudel-rolecolor</artifactId>
+    <name>Pudel's Role Color</name>
 
     <properties>
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <lavaplayer.version>2.2.6</lavaplayer.version>
-        <youtube-source.version>ab5062530eca741d13fd8d1c414ff53cde7c4448-SNAPSHOT</youtube-source.version>
     </properties>
-
-    <repositories>
-        <repository>
-            <id>arbjergDev-releases</id>
-            <name>Lavalink Repository</name>
-            <url>https://maven.lavalink.dev/releases</url>
-        </repository>
-    </repositories>
-
-    <dependencies>
-        <dependency>
-            <groupId>dev.arbjerg</groupId>
-            <artifactId>lavaplayer</artifactId>
-            <version>${lavaplayer.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>dev.lavalink.youtube</groupId>
-            <artifactId>common</artifactId>
-            <version>${youtube-source.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>dev.lavalink.youtube</groupId>
-            <artifactId>v2</artifactId>
-            <version>${youtube-source.version}</version>
-        </dependency>
-    </dependencies>
 
     <build>
         <plugins>

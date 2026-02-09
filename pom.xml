@@ -15,6 +15,7 @@
     <modules>
         <module>pudel-music</module>
         <module>pudel-message</module>
+        <module>pudel-rolecolor</module>
     </modules>
 
     <licenses>

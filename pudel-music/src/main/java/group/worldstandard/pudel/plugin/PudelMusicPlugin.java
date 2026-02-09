@@ -57,7 +57,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Compliant with Pudel v2.x Strict Schema & Sandboxing policies.
  */
 @Plugin(
-        name = "Pudel Music",
+        name = "Pudel's Music",
         version = "2.0.1",
         author = "Zazalng",
         description = "Advanced music playback with slash commands, interactive buttons, and database persistence"
@@ -124,16 +124,19 @@ public class PudelMusicPlugin {
                 .setAllowSearch(true)
                 .setAllowDirectPlaylistIds(true)
                 .setAllowDirectVideoIds(true)
-                .setRemoteCipher("https://cipher.kikkia.dev", "", "Pudel v2.0.0-rc5");
+                .setRemoteCipher("http://ejs-api:8001/", "pudel@yts", "Pudel v2.0.0-rc5");
 
         YoutubeAudioSourceManager ytSourceManager = new YoutubeAudioSourceManager(
                 ytk,
                 new WebWithThumbnail(),
                 new MWebWithThumbnail(),
                 new AndroidMusicWithThumbnail(),
-                new AndroidVrWithThumbnail()
+                new AndroidVrWithThumbnail(),
+                new TvHtml5SimplyWithThumbnail(),
+                new Tv()
         );
 
+        ytSourceManager.useOauth2("", true);
         this.playerManager.registerSourceManager(ytSourceManager);
 
         AudioSourceManagers.registerRemoteSources(
@@ -185,7 +188,7 @@ public class PudelMusicPlugin {
             name = "play",
             description = "Play music in your voice channel",
             options = {
-                    @CommandOption(name = "query", description = "Song name or URL", type = "STRING", required = true)
+                    @CommandOption(name = "query", description = "Song name or URL", required = true)
             }
     )
     public void handlePlaySlash(SlashCommandInteractionEvent event) {
@@ -271,7 +274,6 @@ public class PudelMusicPlugin {
                     @CommandOption(
                             name = "mode",
                             description = "Loop mode",
-                            type = "STRING",
                             choices = {
                                     @Choice(name = "Off", value = "off"),
                                     @Choice(name = "Track", value = "track"),
@@ -427,7 +429,7 @@ public class PudelMusicPlugin {
     public void onSearchSelect(StringSelectInteractionEvent event) {
         if (event.getValues().isEmpty()) return;
 
-        int index = Integer.parseInt(event.getValues().get(0));
+        int index = Integer.parseInt(event.getValues().getFirst());
         List<AudioTrack> tracks = searchResults.get(event.getGuild().getIdLong());
 
         if (tracks == null || index >= tracks.size()) {

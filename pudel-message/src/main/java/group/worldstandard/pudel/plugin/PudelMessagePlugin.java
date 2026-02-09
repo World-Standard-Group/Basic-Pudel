@@ -62,7 +62,7 @@ import java.util.regex.Pattern;
  * @version 2.0.0
  */
 @Plugin(
-        name = "Pudel Embed Builder",
+        name = "Pudel's Embed Builder",
         version = "2.0.0",
         author = "Zazalng",
         description = "Interactive embed builder with buttons and modals"
