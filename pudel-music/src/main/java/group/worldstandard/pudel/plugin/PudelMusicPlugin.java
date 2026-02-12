@@ -111,8 +111,11 @@ public class PudelMusicPlugin {
                 .column("track_blob", ColumnType.TEXT, false) // Base64 encoded track
                 .column("status", ColumnType.STRING, 20, false, "'QUEUE'") // QUEUE, PLAYED, CURRENT
                 .column("title", ColumnType.STRING, 255, true) // For display/debug
+                .column("is_looped", ColumnType.BOOLEAN, false, "false")
                 .index("guild_id")
                 .build();
+
+        db.createTable(queueSchema);
 
         // History Table: Immutable log
         TableSchema historySchema = TableSchema.builder("music_history")
@@ -124,7 +127,6 @@ public class PudelMusicPlugin {
                 .index("guild_id")
                 .build();
 
-        db.createTable(queueSchema);
         db.createTable(historySchema);
 
         this.queueRepo = db.getRepository("music_queue", QueueEntry.class);
@@ -443,6 +445,7 @@ public class PudelMusicPlugin {
 
     private void sendController(SlashCommandInteractionEvent event, GuildMusicManager mgr, AudioTrack track) {
         event.replyEmbeds(buildControllerEmbed(mgr, track).build())
+                .setEphemeral(true)
                 .addComponents(ActionRow.of(buildControllerButtons(mgr)))
                 .queue();
     }
@@ -462,11 +465,12 @@ public class PudelMusicPlugin {
         return new EmbedBuilder()
                 .setTitle("🎵 Now Playing")
                 .setDescription("**[" + track.getInfo().title + "](" + track.getInfo().uri + ")**")
-                .setThumbnail(getThumbnail(track))
+                .setThumbnail(track.getInfo().artworkUrl)
                 .addField("Uploader", track.getInfo().author, true)
-                .addField("Time", formatTime(position) + " / " + formatTime(duration), true)
+
                 .addField("Loop", loopStatus, true)
                 .addField("Shuffle", shuffleStatus, true)
+                .addField("Time", formatTime(position) + " / " + formatTime(duration), false)
                 .setColor(Color.CYAN);
     }
 
@@ -535,16 +539,15 @@ public class PudelMusicPlugin {
 
         public void queue(AudioTrack track, long userId) {
             try {
-                // Save to DB
                 QueueEntry entry = new QueueEntry();
                 entry.setGuildId(guildId);
                 entry.setUserId(userId);
                 entry.setStatus("QUEUE");
                 entry.setTitle(track.getInfo().title);
                 entry.setTrackBlob(encodeTrack(track));
+                entry.setIsLooped(false);
                 queueRepo.save(entry);
 
-                // If nothing playing, play this
                 if (player.getPlayingTrack() == null) {
                     nextTrack();
                 }
@@ -554,34 +557,41 @@ public class PudelMusicPlugin {
         }
 
         public void nextTrack() {
-            AudioTrack current = player.getPlayingTrack();
-            if (current != null) {
-                // Find current based on status and update to PLAYED
-                List<QueueEntry> active = queueRepo.query()
-                        .where("guild_id", guildId)
-                        .where("status", "CURRENT")
-                        .list();
-                for (QueueEntry e : active) {
-                    e.setStatus("PLAYED");
-                    queueRepo.save(e);
+            // 1. Process the track that just finished (move CURRENT -> PLAYED)
+            List<QueueEntry> active = queueRepo.query()
+                    .where("guild_id", guildId)
+                    .where("status", "CURRENT")
+                    .list();
 
-                    // Save to history
-                    HistoryEntry hist = new HistoryEntry();
-                    hist.setGuildId(guildId);
-                    hist.setUserId(e.getUserId());
-                    hist.setTrackTitle(e.getTitle());
-                    hist.setTrackUrl(current.getInfo().uri);
-                    hist.setPlayedAt(System.currentTimeMillis());
-                    historyRepo.save(hist);
+            for (QueueEntry e : active) {
+                e.setStatus("PLAYED");
+                queueRepo.save(e);
+
+                // --- HISTORY CHECK ---
+                // Only save to history if this wasn't a looped playback
+                if (e.getIsLooped() == null || !e.getIsLooped()) {
+                    try {
+                        AudioTrack infoTrack = decodeTrack(e.getTrackBlob());
+                        HistoryEntry hist = new HistoryEntry();
+                        hist.setGuildId(guildId);
+                        hist.setUserId(e.getUserId());
+                        hist.setTrackTitle(e.getTitle());
+                        hist.setTrackUrl(infoTrack.getInfo().uri);
+                        hist.setPlayedAt(System.currentTimeMillis());
+                        historyRepo.save(hist);
+                    } catch (IOException ex) {
+                        context.log("error", "History save failed: " + ex.getMessage());
+                    }
                 }
             }
 
-            // Fetch Next based on Mode
+            // 2. Fetch Next Track
             QueueEntry nextEntry = null;
             QueryBuilder<QueueEntry> query = queueRepo.query()
                     .where("guild_id", guildId)
                     .where("status", "QUEUE");
 
+            // ... Shuffle logic (same as before) ...
             if (shuffle) {
                 List<QueueEntry> candidates = query.list();
                 if (!candidates.isEmpty()) {
@@ -592,7 +602,7 @@ public class PudelMusicPlugin {
                 if (!list.isEmpty()) nextEntry = list.getFirst();
             }
 
-            // Handle Loop Queue
+            // 3. Handle Loop Queue (Recycle PLAYED -> QUEUE)
             if (nextEntry == null && loopMode == 1) {
                 List<QueueEntry> played = queueRepo.query()
                         .where("guild_id", guildId)
@@ -602,13 +612,15 @@ public class PudelMusicPlugin {
                 if (!played.isEmpty()) {
                     for (QueueEntry e : played) {
                         e.setStatus("QUEUE");
+                        e.setIsLooped(true); // <--- Mark as Recycled (No History next time)
                         queueRepo.save(e);
                     }
-                    nextTrack();
+                    nextTrack(); // Recursive call to pick up the recycled tracks
                     return;
                 }
             }
 
+            // 4. Play
             if (nextEntry != null) {
                 try {
                     AudioTrack track = decodeTrack(nextEntry.getTrackBlob());
@@ -668,13 +680,6 @@ public class PudelMusicPlugin {
         return playerManager.decodeTrack(new MessageInput(input)).decodedTrack;
     }
 
-    private String getThumbnail(AudioTrack track) {
-        if (track.getInfo().uri.contains("youtube.com") || track.getInfo().uri.contains("youtu.be")) {
-            return "https://img.youtube.com/vi/" + track.getIdentifier() + "/hqdefault.jpg";
-        }
-        return null;
-    }
-
     private String formatTime(long millis) {
         long minutes = (millis / 1000) / 60;
         long seconds = (millis / 1000) % 60;
@@ -689,6 +694,7 @@ public class PudelMusicPlugin {
         private String trackBlob;
         private String status;
         private String title;
+        private Boolean isLooped;
 
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
@@ -702,6 +708,8 @@ public class PudelMusicPlugin {
         public void setStatus(String status) { this.status = status; }
         public String getTitle() { return title; }
         public void setTitle(String title) { this.title = title; }
+        public Boolean getIsLooped() { return isLooped; }
+        public void setIsLooped(Boolean looped) { isLooped = looped; }
     }
 
     @Entity
