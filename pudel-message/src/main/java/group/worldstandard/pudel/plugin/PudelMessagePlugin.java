@@ -21,28 +21,29 @@ package group.worldstandard.pudel.plugin;
 import group.worldstandard.pudel.api.PluginContext;
 import group.worldstandard.pudel.api.annotation.*;
 import net.dv8tion.jda.api.EmbedBuilder;
-import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.label.Label;
+import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.components.textinput.TextInput;
 import net.dv8tion.jda.api.components.textinput.TextInputStyle;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.ChannelType;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.entities.channel.unions.GuildChannelUnion;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
+import net.dv8tion.jda.api.events.interaction.component.EntitySelectInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.modals.Modal;
 
 import java.awt.Color;
 import java.net.URI;
-import java.time.LocalDate;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -52,27 +53,27 @@ import java.util.regex.Pattern;
  * Interactive Embed Builder Plugin for Pudel Discord Bot
  * <p>
  * Features:
- * - Slash command interactions with buttons and modals
- * - Visual embed builder with live preview
- * - Color picker with presets and custom hex
- * - Field management (add, clear)
- * - Session-based editing per user
+ * - Single slash command entry point
+ * - Live visual preview
+ * - Button-based editing and posting
+ * - Channel selection via UI
  *
  * @author Zazalng
- * @version 2.0.0
+ * @version 2.2.0
  */
 @Plugin(
         name = "Pudel's Embed Builder",
-        version = "2.0.0",
+        version = "2.2.0",
         author = "Zazalng",
-        description = "Interactive embed builder with buttons and modals"
+        description = "Interactive embed builder with live preview"
 )
 public class PudelMessagePlugin {
 
     // ==================== CONSTANTS ====================
     private static final String BUTTON_PREFIX = "embed:";
     private static final String MODAL_PREFIX = "embed:modal:";
-    private static final String SELECT_PREFIX = "embed:select:";
+    private static final String MENU_PREFIX = "embed:menu:";
+    private static final String CHANNEL_SELECT_ID = "embed:channel_select";
 
     // ==================== STATE MANAGEMENT ====================
     private PluginContext context;
@@ -83,35 +84,25 @@ public class PudelMessagePlugin {
     @OnEnable
     public void onEnable(PluginContext ctx) {
         this.context = ctx;
-        ctx.log("info", "PudelMessagePlugin initialized with interactive embed builder");
+        ctx.log("info", "PudelMessagePlugin initialized (v2.2.0)");
     }
 
     @OnShutdown
     public boolean onShutdown() {
-        // Clean up active sessions
         for (EmbedSession session : activeSessions.values()) {
             if (session.previewMessage != null) {
                 session.previewMessage.delete().queue(null, e -> {});
             }
         }
         activeSessions.clear();
-        context.log("info", "PudelMessagePlugin shutdown successfully");
         return true;
     }
 
-    // ==================== SLASH COMMANDS ====================
+    // ==================== SLASH COMMAND ====================
 
     @SlashCommand(
             name = "embed",
-            description = "Create and build Discord embeds interactively",
-            subcommands = {
-                    @Subcommand(name = "create", description = "Create a new embed builder session"),
-                    @Subcommand(name = "build", description = "Post the current embed to a channel", options = {
-                            @CommandOption(name = "channel", description = "Channel to post the embed", type = "CHANNEL", required = true)
-                    }),
-                    @Subcommand(name = "cancel", description = "Cancel the current embed session"),
-                    @Subcommand(name = "preview", description = "Show a preview of the current embed")
-            }
+            description = "Open the interactive embed builder"
     )
     public void handleEmbedCommand(SlashCommandInteractionEvent event) {
         if (!event.isFromGuild()) {
@@ -119,228 +110,8 @@ public class PudelMessagePlugin {
             return;
         }
 
-        String subCommand = event.getSubcommandName();
-        if (subCommand == null) return;
-
         long userId = event.getUser().getIdLong();
 
-        switch (subCommand) {
-            case "create" -> createNewSession(event, userId);
-            case "build" -> buildEmbed(event, userId);
-            case "cancel" -> cancelSession(event, userId);
-            case "preview" -> showPreview(event, userId);
-        }
-    }
-
-    // ==================== BUTTON HANDLERS ====================
-
-    @ButtonHandler(BUTTON_PREFIX)
-    public void handleButton(ButtonInteractionEvent event) {
-        long userId = event.getUser().getIdLong();
-        EmbedSession session = activeSessions.get(userId);
-
-        if (session == null) {
-            event.reply("❌ No active session! Use `/embed create` to start.").setEphemeral(true).queue();
-            return;
-        }
-
-        String buttonId = event.getComponentId().substring(BUTTON_PREFIX.length());
-
-        switch (buttonId) {
-            case "title" -> showTitleModal(event);
-            case "description" -> showDescriptionModal(event);
-            case "color" -> showColorSelectMenu(event);
-            case "author" -> showAuthorModal(event);
-            case "footer" -> showFooterModal(event);
-            case "thumbnail" -> showThumbnailModal(event);
-            case "image" -> showImageModal(event);
-            case "url" -> showUrlModal(event);
-            case "timestamp" -> showTimestampModal(event);
-            case "field" -> showFieldModal(event);
-            case "clearfields" -> {
-                session.fields.clear();
-                updateSessionPreview(event, session);
-            }
-            case "reset" -> {
-                session.reset();
-                updateSessionPreview(event, session);
-            }
-        }
-    }
-
-    // ==================== MODAL HANDLERS ====================
-
-    @ModalHandler(MODAL_PREFIX)
-    public void handleModal(ModalInteractionEvent event) {
-        long userId = event.getUser().getIdLong();
-        EmbedSession session = activeSessions.get(userId);
-
-        if (session == null) {
-            event.reply("❌ Session expired! Use `/embed create` to start a new one.").setEphemeral(true).queue();
-            return;
-        }
-
-        String modalId = event.getModalId().substring(MODAL_PREFIX.length());
-
-        try {
-            switch (modalId) {
-                case "title" -> {
-                    String title = getModalValue(event, "title");
-                    session.title = title.isEmpty() ? null : title;
-                }
-                case "description" -> {
-                    String desc = getModalValue(event, "description");
-                    session.description = desc.isEmpty() ? null : desc;
-                }
-                case "author" -> {
-                    String author = getModalValue(event, "author");
-                    String authorUrl = getModalValue(event, "authorurl");
-                    String authorIcon = getModalValue(event, "authoricon");
-                    session.author = author.isEmpty() ? null : author;
-                    session.authorUrl = authorUrl.isEmpty() ? null : (isValidUrl(authorUrl) ? authorUrl : null);
-                    session.authorIcon = authorIcon.isEmpty() ? null : (isValidUrl(authorIcon) ? authorIcon : null);
-                }
-                case "footer" -> {
-                    String footer = getModalValue(event, "footer");
-                    String footerIcon = getModalValue(event, "footericon");
-                    session.footer = footer.isEmpty() ? null : footer;
-                    session.footerIcon = footerIcon.isEmpty() ? null : (isValidUrl(footerIcon) ? footerIcon : null);
-                }
-                case "thumbnail" -> {
-                    String thumb = getModalValue(event, "thumbnail");
-                    if (thumb.isEmpty()) {
-                        session.thumbnail = null;
-                    } else if (!isValidUrl(thumb)) {
-                        event.reply("❌ Invalid URL for thumbnail!").setEphemeral(true).queue();
-                        return;
-                    } else {
-                        session.thumbnail = thumb;
-                    }
-                }
-                case "image" -> {
-                    String image = getModalValue(event, "image");
-                    if (image.isEmpty()) {
-                        session.image = null;
-                    } else if (!isValidUrl(image)) {
-                        event.reply("❌ Invalid URL for image!").setEphemeral(true).queue();
-                        return;
-                    } else {
-                        session.image = image;
-                    }
-                }
-                case "url" -> {
-                    String url = getModalValue(event, "url");
-                    if (url.isEmpty()) {
-                        session.url = null;
-                    } else if (!isValidUrl(url)) {
-                        event.reply("❌ Invalid URL!").setEphemeral(true).queue();
-                        return;
-                    } else {
-                        session.url = url;
-                    }
-                }
-                case "timestamp" -> {
-                    String timestamp = getModalValue(event, "timestamp");
-                    if (timestamp.isEmpty()) {
-                        session.timestamp = null;
-                    } else {
-                        session.timestamp = parseTimestamp(timestamp);
-                        if (session.timestamp == null) {
-                            event.reply("❌ Invalid timestamp format! Use: DD-MM-YYYY HH:mm:ss+OFFSET").setEphemeral(true).queue();
-                            return;
-                        }
-                    }
-                }
-                case "field" -> {
-                    String name = getModalValue(event, "fieldname");
-                    String value = getModalValue(event, "fieldvalue");
-                    String inlineStr = getModalValue(event, "fieldinline").toLowerCase();
-                    boolean inline = inlineStr.equals("yes") || inlineStr.equals("true") || inlineStr.equals("y");
-
-                    if (session.fields.size() >= 25) {
-                        event.reply("❌ Maximum of 25 fields allowed!").setEphemeral(true).queue();
-                        return;
-                    }
-
-                    session.fields.add(new EmbedField(name, value, inline));
-                }
-                case "customcolor" -> {
-                    String hex = getModalValue(event, "colorhex");
-                    Color color = parseColor(hex);
-                    if (color == null) {
-                        event.reply("❌ Invalid hex color! Use format like: 26cfd5").setEphemeral(true).queue();
-                        return;
-                    }
-                    session.color = color;
-                }
-            }
-
-            // Update preview
-            updateSessionPreviewFromModal(event, session);
-
-        } catch (Exception e) {
-            event.reply("❌ Error: " + e.getMessage()).setEphemeral(true).queue();
-            context.log("error", "Error processing modal: " + e.getMessage());
-        }
-    }
-
-    // ==================== SELECT MENU HANDLERS ====================
-
-    @SelectMenuHandler(SELECT_PREFIX)
-    public void handleSelectMenu(StringSelectInteractionEvent event) {
-        long userId = event.getUser().getIdLong();
-        EmbedSession session = activeSessions.get(userId);
-
-        if (session == null) {
-            event.reply("❌ Session expired! Use `/embed create` to start a new one.").setEphemeral(true).queue();
-            return;
-        }
-
-        String menuId = event.getComponentId().substring(SELECT_PREFIX.length());
-        String selected = event.getValues().getFirst();
-
-        if (menuId.equals("color")) {
-            switch (selected) {
-                case "red" -> session.color = Color.RED;
-                case "orange" -> session.color = Color.ORANGE;
-                case "yellow" -> session.color = Color.YELLOW;
-                case "green" -> session.color = Color.GREEN;
-                case "blue" -> session.color = Color.BLUE;
-                case "purple" -> session.color = new Color(128, 0, 128);
-                case "white" -> session.color = Color.WHITE;
-                case "black" -> session.color = Color.BLACK;
-                case "none" -> session.color = null;
-                case "custom" -> {
-                    // Show custom color modal
-                    TextInput colorInput = TextInput.create("colorhex", TextInputStyle.SHORT)
-                            .setPlaceholder("26cfd5 (without #)")
-                            .setMinLength(6)
-                            .setMaxLength(6)
-                            .setRequired(true)
-                            .build();
-
-                    Modal modal = Modal.create(MODAL_PREFIX + "customcolor", "Enter Custom Color")
-                            .addComponents(Label.of("Hex Color Code", colorInput))
-                            .build();
-
-                    event.replyModal(modal).queue();
-                    return;
-                }
-            }
-
-            // Update preview message
-            if (session.previewMessage != null) {
-                session.previewMessage.editMessageEmbeds(buildPreviewEmbed(session))
-                        .setComponents(getBuilderActionRows())
-                        .queue();
-            }
-            event.reply("✅ Color updated!").setEphemeral(true).queue();
-        }
-    }
-
-    // ==================== SLASH COMMAND HELPER METHODS ====================
-
-    private void createNewSession(SlashCommandInteractionEvent event, long userId) {
         // Delete old session if exists
         EmbedSession oldSession = activeSessions.get(userId);
         if (oldSession != null && oldSession.previewMessage != null) {
@@ -351,276 +122,238 @@ public class PudelMessagePlugin {
         EmbedSession session = new EmbedSession(userId);
         activeSessions.put(userId, session);
 
-        // Send builder interface with buttons
+        // Send builder interface
         event.replyEmbeds(buildPreviewEmbed(session))
+                .setContent("🛠️ **Embed Builder**\nUse the buttons below to edit. The embed shown is your **live preview**.")
+                .setEphemeral(true)
                 .addComponents(getBuilderActionRows())
                 .queue(hook -> hook.retrieveOriginal().queue(msg -> session.previewMessage = msg));
     }
 
-    private void buildEmbed(SlashCommandInteractionEvent event, long userId) {
+    // ==================== COMPONENT HANDLERS ====================
+
+    @ButtonHandler(BUTTON_PREFIX)
+    public void handleButton(ButtonInteractionEvent event) {
+        long userId = event.getUser().getIdLong();
         EmbedSession session = activeSessions.get(userId);
+
         if (session == null) {
-            event.reply("❌ No active embed session! Use `/embed create` first.").setEphemeral(true).queue();
+            event.reply("❌ Session expired! Use `/embed` to start again.").setEphemeral(true).queue();
             return;
         }
 
-        GuildChannelUnion channelOption = event.getOption("channel").getAsChannel();
-        if (!(channelOption instanceof TextChannel targetChannel)) {
-            event.reply("❌ Please select a text channel!").setEphemeral(true).queue();
+        String buttonId = event.getComponentId().substring(BUTTON_PREFIX.length());
+
+        switch (buttonId) {
+            // Content
+            case "title" -> showTitleModal(event);
+            case "description" -> showDescriptionModal(event);
+            case "color" -> showColorSelectMenu(event);
+            case "author" -> showAuthorModal(event);
+            case "footer" -> showFooterModal(event);
+            case "thumbnail" -> showThumbnailModal(event);
+            case "image" -> showImageModal(event);
+            case "url" -> showUrlModal(event);
+            case "timestamp" -> showTimestampModal(event);
+
+            // Fields
+            case "field" -> showFieldModal(event);
+            case "clearfields" -> {
+                session.fields.clear();
+                updateSessionPreview(event, session);
+            }
+
+            // Actions
+            case "post" -> showChannelSelect(event);
+            case "cancel" -> {
+                if (session.previewMessage != null) session.previewMessage.delete().queue();
+                activeSessions.remove(userId);
+                event.reply("❌ Session cancelled.").setEphemeral(true).queue();
+            }
+        }
+    }
+
+    // This handles the Channel Selection for "Post"
+    @SelectMenuHandler(CHANNEL_SELECT_ID)
+    public void handleChannelSelect(EntitySelectInteractionEvent event) {
+        long userId = event.getUser().getIdLong();
+        EmbedSession session = activeSessions.get(userId);
+
+        if (session == null) {
+            event.reply("❌ Session expired.").setEphemeral(true).queue();
             return;
         }
 
-        // Check permissions
-        if (!event.getGuild().getSelfMember().hasPermission(targetChannel, Permission.MESSAGE_SEND)) {
-            event.reply("❌ I don't have permission to send messages in that channel!").setEphemeral(true).queue();
+        List<GuildChannelUnion> channels = event.getMentions().getChannels(GuildChannelUnion.class);
+        if (channels.isEmpty()) return;
+
+        GuildMessageChannel targetChannel = channels.getFirst().asGuildMessageChannel();
+
+        // Permission Check
+        if (!targetChannel.canTalk()) {
+            event.reply("❌ I cannot send messages to " + targetChannel.getAsMention()).setEphemeral(true).queue();
             return;
         }
 
-        if (!event.getMember().hasPermission(targetChannel, Permission.MESSAGE_SEND)) {
-            event.reply("❌ You don't have permission to send messages in that channel!").setEphemeral(true).queue();
-            return;
-        }
-
-        // Build and post the final embed
+        // Build and Post
         MessageEmbed finalEmbed = buildFinalEmbed(session);
-
         targetChannel.sendMessageEmbeds(finalEmbed).queue(
-                msg -> {
-                    // Success - clean up session
-                    if (session.previewMessage != null) {
-                        session.previewMessage.delete().queue(null, e -> {});
-                    }
+                success -> {
+                    // Cleanup
+                    if (session.previewMessage != null) session.previewMessage.delete().queue();
                     activeSessions.remove(userId);
-                    event.reply("✅ Embed posted to " + targetChannel.getAsMention() + "!").setEphemeral(true).queue();
+                    event.reply("✅ Embed posted in " + targetChannel.getAsMention()).setEphemeral(true).queue();
                 },
-                error -> event.reply("❌ Failed to post embed: " + error.getMessage()).setEphemeral(true).queue()
+                error -> event.reply("❌ Failed to post: " + error.getMessage()).setEphemeral(true).queue()
         );
     }
 
-    private void cancelSession(SlashCommandInteractionEvent event, long userId) {
-        EmbedSession session = activeSessions.remove(userId);
-        if (session == null) {
-            event.reply("❌ No active embed session to cancel!").setEphemeral(true).queue();
-            return;
-        }
-
-        if (session.previewMessage != null) {
-            session.previewMessage.delete().queue(null, e -> {});
-        }
-
-        event.reply("✅ Embed session cancelled!").setEphemeral(true).queue();
-    }
-
-    private void showPreview(SlashCommandInteractionEvent event, long userId) {
+    @ModalHandler(MODAL_PREFIX)
+    public void handleModal(ModalInteractionEvent event) {
+        long userId = event.getUser().getIdLong();
         EmbedSession session = activeSessions.get(userId);
+
         if (session == null) {
-            event.reply("❌ No active embed session! Use `/embed create` first.").setEphemeral(true).queue();
+            event.reply("❌ Session expired!").setEphemeral(true).queue();
             return;
         }
 
-        MessageEmbed finalEmbed = buildFinalEmbed(session);
-        event.replyEmbeds(finalEmbed)
-                .setContent("**📝 Preview of your embed:**")
-                .setEphemeral(true)
-                .queue();
+        String modalId = event.getModalId().substring(MODAL_PREFIX.length());
+
+        try {
+            switch (modalId) {
+                case "title" -> {
+                    String val = getModalValue(event, "title");
+                    session.title = val.isEmpty() ? null : val;
+                }
+                case "description" -> {
+                    String val = getModalValue(event, "description");
+                    session.description = val.isEmpty() ? null : val;
+                }
+                case "author" -> {
+                    String auth = getModalValue(event, "author");
+                    String url = getModalValue(event, "authorurl");
+                    String icon = getModalValue(event, "authoricon");
+                    session.author = auth.isEmpty() ? null : auth;
+                    session.authorUrl = (isValidUrl(url)) ? url : null;
+                    session.authorIcon = (isValidUrl(icon)) ? icon : null;
+                }
+                case "footer" -> {
+                    String foot = getModalValue(event, "footer");
+                    String icon = getModalValue(event, "footericon");
+                    session.footer = foot.isEmpty() ? null : foot;
+                    session.footerIcon = (isValidUrl(icon)) ? icon : null;
+                }
+                case "thumbnail" -> session.thumbnail = validateUrl(event, "thumbnail");
+                case "image" -> session.image = validateUrl(event, "image");
+                case "url" -> session.url = validateUrl(event, "url");
+                case "timestamp" -> {
+                    String ts = getModalValue(event, "timestamp");
+                    if (!ts.isEmpty()) {
+                        OffsetDateTime odt = parseTimestamp(ts);
+                        if (odt != null) session.timestamp = odt;
+                        else {
+                            event.reply("❌ Invalid format! Use: DD-MM-YYYY HH:mm:ss+OFFSET").setEphemeral(true).queue();
+                            return;
+                        }
+                    } else session.timestamp = null;
+                }
+                case "field" -> {
+                    if (session.fields.size() >= 25) {
+                        event.reply("❌ Max 25 fields!").setEphemeral(true).queue();
+                        return;
+                    }
+                    String name = getModalValue(event, "fieldname");
+                    String value = getModalValue(event, "fieldvalue");
+                    String inlineStr = getModalValue(event, "fieldinline").toLowerCase();
+                    boolean inline = inlineStr.startsWith("y") || inlineStr.equals("true");
+                    session.fields.add(new EmbedField(name, value, inline));
+                }
+                case "customcolor" -> {
+                    Color c = parseColor(getModalValue(event, "colorhex"));
+                    if (c != null) session.color = c;
+                    else {
+                        event.reply("❌ Invalid hex!").setEphemeral(true).queue();
+                        return;
+                    }
+                }
+            }
+            updateSessionPreviewFromModal(event, session);
+        } catch (Exception e) {
+            event.reply("❌ Error: " + e.getMessage()).setEphemeral(true).queue();
+        }
     }
 
+    @SelectMenuHandler(MENU_PREFIX)
+    public void handleSelectMenu(StringSelectInteractionEvent event) {
+        long userId = event.getUser().getIdLong();
+        EmbedSession session = activeSessions.get(userId);
+        if (session == null) return;
 
-    // ==================== MODAL BUILDERS ====================
+        String selected = event.getValues().getFirst();
+        if (selected.equals("custom")) {
+            TextInput colorInput = TextInput.create("colorhex", TextInputStyle.SHORT)
+                    .setPlaceholder("Hex Color (e.g., FF0000)")
+                    .setMinLength(6).setMaxLength(6).setRequired(true).build();
+            event.replyModal(Modal.create(MODAL_PREFIX + "customcolor", "Custom Color")
+                    .addComponents(Label.of("Color Input", colorInput)).build()).queue();
+            return;
+        }
 
-    private void showTitleModal(ButtonInteractionEvent event) {
-        TextInput titleInput = TextInput.create("title", TextInputStyle.SHORT)
-                .setPlaceholder("Enter the title (max 256 characters)")
-                .setMaxLength(256)
-                .setRequired(false)
-                .build();
+        // Predefined colors
+        switch (selected) {
+            case "red" -> session.color = Color.RED;
+            case "orange" -> session.color = Color.ORANGE;
+            case "yellow" -> session.color = Color.YELLOW;
+            case "green" -> session.color = Color.GREEN;
+            case "blue" -> session.color = Color.BLUE;
+            case "purple" -> session.color = new Color(128, 0, 128);
+            case "white" -> session.color = Color.WHITE;
+            case "black" -> session.color = Color.BLACK;
+            case "none" -> session.color = null;
+        }
 
-        Modal modal = Modal.create(MODAL_PREFIX + "title", "Set Embed Title")
-                .addComponents(Label.of("Embed Title", titleInput))
-                .build();
-
-        event.replyModal(modal).queue();
+        event.deferEdit().queue();
+        updateSessionPreview(event, session);
     }
-
-    private void showDescriptionModal(ButtonInteractionEvent event) {
-        TextInput descInput = TextInput.create("description", TextInputStyle.PARAGRAPH)
-                .setPlaceholder("Enter the description (max 4096 characters)")
-                .setMaxLength(4096)
-                .setRequired(false)
-                .build();
-
-        Modal modal = Modal.create(MODAL_PREFIX + "description", "Set Embed Description")
-                .addComponents(Label.of("Embed Description", descInput))
-                .build();
-
-        event.replyModal(modal).queue();
-    }
-
-    private void showAuthorModal(ButtonInteractionEvent event) {
-        TextInput authorInput = TextInput.create("author", TextInputStyle.SHORT)
-                .setPlaceholder("Enter author name (max 256 characters)")
-                .setMaxLength(256)
-                .setRequired(false)
-                .build();
-
-        TextInput authorUrlInput = TextInput.create("authorurl", TextInputStyle.SHORT)
-                .setPlaceholder("https://example.com")
-                .setRequired(false)
-                .build();
-
-        TextInput authorIconInput = TextInput.create("authoricon", TextInputStyle.SHORT)
-                .setPlaceholder("https://example.com/icon.png")
-                .setRequired(false)
-                .build();
-
-        Modal modal = Modal.create(MODAL_PREFIX + "author", "Set Embed Author")
-                .addComponents(
-                        Label.of("Author Name", authorInput),
-                        Label.of("Author URL (optional)", authorUrlInput),
-                        Label.of("Author Icon URL (optional)", authorIconInput)
-                )
-                .build();
-
-        event.replyModal(modal).queue();
-    }
-
-    private void showFooterModal(ButtonInteractionEvent event) {
-        TextInput footerInput = TextInput.create("footer", TextInputStyle.SHORT)
-                .setPlaceholder("Enter footer text (max 2048 characters)")
-                .setMaxLength(2048)
-                .setRequired(false)
-                .build();
-
-        TextInput footerIconInput = TextInput.create("footericon", TextInputStyle.SHORT)
-                .setPlaceholder("https://example.com/icon.png")
-                .setRequired(false)
-                .build();
-
-        Modal modal = Modal.create(MODAL_PREFIX + "footer", "Set Embed Footer")
-                .addComponents(
-                        Label.of("Footer Text", footerInput),
-                        Label.of("Footer Icon URL (optional)", footerIconInput)
-                )
-                .build();
-
-        event.replyModal(modal).queue();
-    }
-
-    private void showThumbnailModal(ButtonInteractionEvent event) {
-        TextInput thumbInput = TextInput.create("thumbnail", TextInputStyle.SHORT)
-                .setPlaceholder("https://example.com/image.png")
-                .setRequired(false)
-                .build();
-
-        Modal modal = Modal.create(MODAL_PREFIX + "thumbnail", "Set Thumbnail Image")
-                .addComponents(Label.of("Thumbnail URL", thumbInput))
-                .build();
-
-        event.replyModal(modal).queue();
-    }
-
-    private void showImageModal(ButtonInteractionEvent event) {
-        TextInput imageInput = TextInput.create("image", TextInputStyle.SHORT)
-                .setPlaceholder("https://example.com/image.png")
-                .setRequired(false)
-                .build();
-
-        Modal modal = Modal.create(MODAL_PREFIX + "image", "Set Embed Image")
-                .addComponents(Label.of("Image URL", imageInput))
-                .build();
-
-        event.replyModal(modal).queue();
-    }
-
-    private void showUrlModal(ButtonInteractionEvent event) {
-        TextInput urlInput = TextInput.create("url", TextInputStyle.SHORT)
-                .setPlaceholder("https://example.com")
-                .setRequired(false)
-                .build();
-
-        Modal modal = Modal.create(MODAL_PREFIX + "url", "Set Title URL")
-                .addComponents(Label.of("Title URL", urlInput))
-                .build();
-
-        event.replyModal(modal).queue();
-    }
-
-    private void showTimestampModal(ButtonInteractionEvent event) {
-        TextInput timestampInput = TextInput.create("timestamp", TextInputStyle.SHORT)
-                .setPlaceholder("DD-MM-YYYY HH:mm:ss+OFFSET (e.g., 25-01-2025 14:30:00+7)")
-                .setRequired(false)
-                .build();
-
-        Modal modal = Modal.create(MODAL_PREFIX + "timestamp", "Set Timestamp")
-                .addComponents(Label.of("Timestamp", timestampInput))
-                .build();
-
-        event.replyModal(modal).queue();
-    }
-
-    private void showFieldModal(ButtonInteractionEvent event) {
-        TextInput nameInput = TextInput.create("fieldname", TextInputStyle.SHORT)
-                .setPlaceholder("Field title (max 256 characters)")
-                .setMaxLength(256)
-                .setRequired(true)
-                .build();
-
-        TextInput valueInput = TextInput.create("fieldvalue", TextInputStyle.PARAGRAPH)
-                .setPlaceholder("Field content (max 1024 characters)")
-                .setMaxLength(1024)
-                .setRequired(true)
-                .build();
-
-        TextInput inlineInput = TextInput.create("fieldinline", TextInputStyle.SHORT)
-                .setPlaceholder("yes or no")
-                .setValue("no")
-                .setRequired(true)
-                .build();
-
-        Modal modal = Modal.create(MODAL_PREFIX + "field", "Add Embed Field")
-                .addComponents(
-                        Label.of("Field Name", nameInput),
-                        Label.of("Field Value", valueInput),
-                        Label.of("Inline? (yes/no)", inlineInput)
-                )
-                .build();
-
-        event.replyModal(modal).queue();
-    }
-
-    private void showColorSelectMenu(ButtonInteractionEvent event) {
-        StringSelectMenu colorMenu = StringSelectMenu.create(SELECT_PREFIX + "color")
-                .setPlaceholder("Choose a color or select 'Custom'")
-                .addOption("🔴 Red", "red")
-                .addOption("🟠 Orange", "orange")
-                .addOption("🟡 Yellow", "yellow")
-                .addOption("🟢 Green", "green")
-                .addOption("🔵 Blue", "blue")
-                .addOption("🟣 Purple", "purple")
-                .addOption("⚪ White", "white")
-                .addOption("⚫ Black", "black")
-                .addOption("🎨 Custom (Hex)", "custom")
-                .addOption("❌ Remove Color", "none")
-                .build();
-
-        event.reply("**Select a color for your embed:**")
-                .addComponents(ActionRow.of(colorMenu))
-                .setEphemeral(true)
-                .queue();
-    }
-
 
     // ==================== HELPER METHODS ====================
 
-    private String getModalValue(ModalInteractionEvent event, String id) {
-        var mapping = event.getValue(id);
-        return mapping != null ? mapping.getAsString() : "";
+    private void showChannelSelect(ButtonInteractionEvent event) {
+        EntitySelectMenu channelMenu = EntitySelectMenu.create(CHANNEL_SELECT_ID, EntitySelectMenu.SelectTarget.CHANNEL)
+                .setPlaceholder("Select a channel to post this embed")
+                .setChannelTypes(ChannelType.TEXT, ChannelType.NEWS)
+                .setMaxValues(1)
+                .build();
+
+        event.reply("Select the channel to post this embed:")
+                .setEphemeral(true)
+                .addComponents(ActionRow.of(channelMenu))
+                .queue();
+    }
+
+    private String validateUrl(ModalInteractionEvent event, String fieldId) {
+        String url = getModalValue(event, fieldId);
+        if (url.isEmpty()) return null;
+        if (isValidUrl(url)) return url;
+        // Note: In a real scenario, we might want to return null and warn user,
+        // but for simplicity in modal flow we return null (clearing it)
+        return null;
     }
 
     private void updateSessionPreview(ButtonInteractionEvent event, EmbedSession session) {
         event.editMessageEmbeds(buildPreviewEmbed(session))
                 .setComponents(getBuilderActionRows())
                 .queue();
+    }
+
+    // Overload for StringSelectInteraction
+    private void updateSessionPreview(StringSelectInteractionEvent event, EmbedSession session) {
+        if(session.previewMessage != null) {
+            session.previewMessage.editMessageEmbeds(buildPreviewEmbed(session))
+                    .setComponents(getBuilderActionRows())
+                    .queue();
+        }
     }
 
     private void updateSessionPreviewFromModal(ModalInteractionEvent event, EmbedSession session) {
@@ -636,224 +369,248 @@ public class PudelMessagePlugin {
         return List.of(
                 ActionRow.of(
                         Button.primary(BUTTON_PREFIX + "title", "📝 Title"),
-                        Button.primary(BUTTON_PREFIX + "description", "📄 Description"),
+                        Button.primary(BUTTON_PREFIX + "description", "📄 Desc"),
                         Button.primary(BUTTON_PREFIX + "color", "🎨 Color"),
                         Button.primary(BUTTON_PREFIX + "author", "👤 Author"),
                         Button.primary(BUTTON_PREFIX + "footer", "📌 Footer")
                 ),
                 ActionRow.of(
-                        Button.secondary(BUTTON_PREFIX + "thumbnail", "🖼️ Thumbnail"),
+                        Button.secondary(BUTTON_PREFIX + "thumbnail", "🖼️ Thumb"),
                         Button.secondary(BUTTON_PREFIX + "image", "🌄 Image"),
                         Button.secondary(BUTTON_PREFIX + "url", "🔗 URL"),
-                        Button.secondary(BUTTON_PREFIX + "timestamp", "⏰ Timestamp")
+                        Button.secondary(BUTTON_PREFIX + "timestamp", "⏰ Time")
                 ),
                 ActionRow.of(
-                        Button.success(BUTTON_PREFIX + "field", "➕ Add Field"),
-                        Button.danger(BUTTON_PREFIX + "clearfields", "🗑️ Clear Fields"),
-                        Button.danger(BUTTON_PREFIX + "reset", "🔄 Reset All")
+                        Button.success(BUTTON_PREFIX + "field", "➕ Field"),
+                        Button.danger(BUTTON_PREFIX + "clearfields", "🗑️ Clear Fields")
+                ),
+                ActionRow.of(
+                        Button.success(BUTTON_PREFIX + "post", "✅ Post Embed"),
+                        Button.danger(BUTTON_PREFIX + "cancel", "✖ Cancel")
                 )
         );
     }
 
+    // ... Modal Builders (mostly same as before, simplified for brevity) ...
+
+    private void showTitleModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "title", "Title")
+                .addComponents(
+                        Label.of("Embed Title", TextInput.create("title", TextInputStyle.SHORT)
+                                .setPlaceholder("Title")
+                                .setMaxLength(256)
+                                .setRequired(false)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showDescriptionModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "description", "Description")
+                .addComponents(
+                        Label.of("Embed Description", TextInput.create("description", TextInputStyle.PARAGRAPH)
+                                .setPlaceholder("Description Text")
+                                .setMaxLength(4000)
+                                .setRequired(false)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showAuthorModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "author", "Author")
+                .addComponents(
+                        Label.of("Embed Author Name", TextInput.create("author", TextInputStyle.SHORT)
+                                .setPlaceholder("Author Name")
+                                .setMaxLength(255)
+                                .setRequired(false)
+                                .build()
+                        ),
+                        Label.of("Embed Author URL", TextInput.create("authorurl", TextInputStyle.SHORT)
+                                .setPlaceholder("https://example.com")
+                                .setRequired(false)
+                                .build()
+                        ),
+                        Label.of("Embed Icon URL", TextInput.create("authoricon", TextInputStyle.SHORT)
+                                .setPlaceholder("https://example.com/burh.png")
+                                .setRequired(false)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showFooterModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "footer", "Footer")
+                .addComponents(
+                        Label.of("Embed Foot Note", TextInput.create("footer", TextInputStyle.SHORT)
+                                .setPlaceholder("Foot note")
+                                .setMaxLength(2048)
+                                .setRequired(false)
+                                .build()
+                        ),
+                        Label.of("Embed Foot Icon", TextInput.create("footericon", TextInputStyle.SHORT)
+                                .setPlaceholder("https://example.com/burh.png")
+                                .setRequired(false)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showThumbnailModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "thumbnail", "Thumbnail")
+                .addComponents(
+                        Label.of("Embed Thumbnail URL", TextInput.create("thumbnail", TextInputStyle.SHORT)
+                                .setPlaceholder("https://example.com/burh.png")
+                                .setRequired(false)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showImageModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "image", "Image")
+                .addComponents(
+                        Label.of("Embed Image URL", TextInput.create("image", TextInputStyle.SHORT)
+                                .setPlaceholder("https://example.com/burh.png")
+                                .setRequired(false)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showUrlModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "url", "Title URL")
+                .addComponents(
+                        Label.of("Embed Title URL", TextInput.create("url", TextInputStyle.SHORT)
+                                .setPlaceholder("https://example.com")
+                                .setRequired(false)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showTimestampModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "timestamp", "Timestamp")
+                .addComponents(
+                        Label.of("Embed Timestamp", TextInput.create("timestamp", TextInputStyle.SHORT)
+                                .setPlaceholder(LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ssX")))
+                                .setRequired(false)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showFieldModal(ButtonInteractionEvent e) {
+        e.replyModal(Modal.create(MODAL_PREFIX + "field", "Add Field")
+                .addComponents(
+                        Label.of("Field Title", TextInput.create("fieldname", TextInputStyle.SHORT)
+                                .setPlaceholder("Header")
+                                .setMaxLength(256)
+                                .build()
+                        ),
+                        Label.of("Field Content", TextInput.create("fieldvalue", TextInputStyle.PARAGRAPH)
+                                .setPlaceholder("Value")
+                                .setMaxLength(1024)
+                                .build()
+                        ),
+                        Label.of("Field Inline?", TextInput.create("fieldinline", TextInputStyle.SHORT)
+                                .setPlaceholder("yes / no")
+                                .setRequired(true)
+                                .build()
+                        )
+                ).build()
+        ).queue();
+    }
+
+    private void showColorSelectMenu(ButtonInteractionEvent event) {
+        StringSelectMenu menu = StringSelectMenu.create(MENU_PREFIX + "color")
+                .addOption("🔴 Red", "red").addOption("🔵 Blue", "blue").addOption("🟢 Green", "green")
+                .addOption("🟡 Yellow", "yellow").addOption("🟠 Orange", "orange").addOption("🟣 Purple", "purple")
+                .addOption("⚪ White", "white").addOption("⚫ Black", "black").addOption("🎨 Custom", "custom")
+                .addOption("❌ Reset", "none")
+                .build();
+        event.reply("Select Color")
+                .setEphemeral(true)
+                .addComponents(ActionRow.of(menu))
+                .queue();
+    }
+
     private MessageEmbed buildPreviewEmbed(EmbedSession session) {
-        EmbedBuilder builder = new EmbedBuilder();
-        builder.setTitle("🔨 Embed Builder - Interactive Editor");
-        builder.setDescription("""
-                Use the buttons below to edit your embed.
-                Use `/embed preview` to see the final result.
-                Use `/embed build #channel` to post it.
-                
-                **Current Settings:**""");
-        builder.setColor(Color.BLUE);
+        boolean hasContent = session.title != null || session.description != null || session.author != null
+                || session.footer != null || session.image != null || session.thumbnail != null
+                || session.timestamp != null || !session.fields.isEmpty();
 
-        String settings = "**Title:** " + (session.title != null ? "✅ `" + truncate(session.title, 30) + "`" : "❌ Not set") + "\n" +
-                "**Description:** " + (session.description != null ? "✅ Set (" + session.description.length() + " chars)" : "❌ Not set") + "\n" +
-                "**Color:** " + (session.color != null ? "✅ #" + toHex(session.color) : "❌ Not set") + "\n" +
-                "**Author:** " + (session.author != null ? "✅ `" + truncate(session.author, 30) + "`" : "❌ Not set") + "\n" +
-                "**Footer:** " + (session.footer != null ? "✅ `" + truncate(session.footer, 30) + "`" : "❌ Not set") + "\n" +
-                "**Thumbnail:** " + (session.thumbnail != null ? "✅ Set" : "❌ Not set") + "\n" +
-                "**Image:** " + (session.image != null ? "✅ Set" : "❌ Not set") + "\n" +
-                "**URL:** " + (session.url != null ? "✅ Set" : "❌ Not set") + "\n" +
-                "**Timestamp:** " + (session.timestamp != null ? "✅ Set" : "❌ Not set") + "\n" +
-                "**Fields:** " + (!session.fields.isEmpty() ? "✅ " + session.fields.size() + " field(s)" : "❌ None") + "\n";
-
-        builder.addField("Configuration", settings, false);
-
-        if (!session.fields.isEmpty()) {
-            StringBuilder fieldsInfo = new StringBuilder();
-            int i = 1;
-            for (EmbedField field : session.fields) {
-                fieldsInfo.append(i++).append(". ").append(truncate(field.name, 20))
-                        .append(field.inline ? " (inline)" : "").append("\n");
-                if (i > 10) {
-                    fieldsInfo.append("... and ").append(session.fields.size() - 10).append(" more\n");
-                    break;
-                }
-            }
-            builder.addField("Fields Preview", fieldsInfo.toString(), false);
+        if (!hasContent) {
+            EmbedBuilder b = new EmbedBuilder();
+            b.setTitle("🆕 New Embed");
+            b.setDescription("_Start adding content using the buttons below._\n_This preview will update automatically._");
+            b.setColor(Color.LIGHT_GRAY);
+            return b.build();
         }
-
-        builder.setFooter("Session for user: " + session.userId);
-        builder.setTimestamp(OffsetDateTime.now());
-
-        return builder.build();
+        return buildFinalEmbed(session);
     }
 
     private MessageEmbed buildFinalEmbed(EmbedSession session) {
-        EmbedBuilder builder = new EmbedBuilder();
+        EmbedBuilder b = new EmbedBuilder();
+        if (session.title != null) b.setTitle(session.title, session.url);
+        if (session.description != null) b.setDescription(session.description);
+        if (session.color != null) b.setColor(session.color);
+        if (session.author != null) b.setAuthor(session.author, session.authorUrl, session.authorIcon);
+        if (session.footer != null) b.setFooter(session.footer, session.footerIcon);
+        if (session.thumbnail != null) b.setThumbnail(session.thumbnail);
+        if (session.image != null) b.setImage(session.image);
+        if (session.timestamp != null) b.setTimestamp(session.timestamp);
+        for (EmbedField f : session.fields) b.addField(f.name, f.value, f.inline);
 
-        if (session.title != null) {
-            builder.setTitle(session.title, session.url);
-        }
-        if (session.description != null) {
-            builder.setDescription(session.description);
-        }
-        if (session.color != null) {
-            builder.setColor(session.color);
-        }
-        if (session.author != null) {
-            builder.setAuthor(session.author, session.authorUrl, session.authorIcon);
-        }
-        if (session.footer != null) {
-            builder.setFooter(session.footer, session.footerIcon);
-        }
-        if (session.thumbnail != null) {
-            builder.setThumbnail(session.thumbnail);
-        }
-        if (session.image != null) {
-            builder.setImage(session.image);
-        }
-        if (session.timestamp != null) {
-            builder.setTimestamp(session.timestamp);
-        }
-
-        for (EmbedField field : session.fields) {
-            builder.addField(field.name, field.value, field.inline);
-        }
-
-        return builder.build();
-    }
-
-    private String truncate(String str, int maxLength) {
-        if (str.length() <= maxLength) return str;
-        return str.substring(0, maxLength - 3) + "...";
+        if (b.isEmpty()) b.setDescription("_Empty Embed_");
+        return b.build();
     }
 
     private boolean isValidUrl(String url) {
-        try {
-            new URI(url);
-            return url.startsWith("http://") || url.startsWith("https://");
-        } catch (Exception e) {
-            return false;
-        }
+        try { new URI(url); return url.startsWith("http"); } catch (Exception e) { return false; }
+    }
+
+    private String getModalValue(ModalInteractionEvent event, String id) {
+        var v = event.getValue(id); return v != null ? v.getAsString() : "";
     }
 
     private Color parseColor(String hex) {
-        try {
-            hex = hex.replace("#", "");
-            if (hex.length() != 6) return null;
-            return Color.decode("#" + hex);
-        } catch (Exception e) {
-            return null;
-        }
+        try { return Color.decode("#" + hex.replace("#", "")); } catch (Exception e) { return null; }
     }
 
-    private String toHex(Color color) {
-        return String.format("%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
-    }
-
-    private OffsetDateTime parseTimestamp(String timestamp) {
-        if (timestamp == null || timestamp.isBlank()) {
-            return null;
-        }
-
+    private OffsetDateTime parseTimestamp(String ts) {
+        // Reuse the regex logic from previous version for parsing DD-MM-YYYY HH:mm:ss+Offset
         try {
             String regex = "^(?:(\\d+)[-!@#$%^&*/.]+(\\d+)[-!@#$%^&*/.]+(\\d+)\\s+)?(\\d{2}):(\\d{2}):(\\d{2})([+-]\\d+)$";
+            Matcher m = Pattern.compile(regex).matcher(ts.trim());
+            if (!m.matches()) return null;
 
-            Pattern pattern = Pattern.compile(regex);
-            Matcher matcher = pattern.matcher(timestamp.trim());
+            int y, mo, d;
+            if(m.group(1) == null) { LocalDate now = LocalDate.now(); y=now.getYear(); mo=now.getMonthValue(); d=now.getDayOfMonth(); }
+            else { int p1=Integer.parseInt(m.group(1)); int p2=Integer.parseInt(m.group(2)); int p3=Integer.parseInt(m.group(3));
+                if(p1>31) { y=p1; mo=p2; d=p3; } else { d=p1; mo=p2; y=p3; } }
 
-            if (!matcher.matches()) {
-                return null;
-            }
-
-            int year, month, day;
-
-            if (matcher.group(1) == null) {
-                LocalDate today = LocalDate.now();
-                year = today.getYear();
-                month = today.getMonthValue();
-                day = today.getDayOfMonth();
-            } else {
-                int p1 = Integer.parseInt(matcher.group(1));
-                int p2 = Integer.parseInt(matcher.group(2));
-                int p3 = Integer.parseInt(matcher.group(3));
-
-                if (p1 > 31) {
-                    year = p1;
-                    month = p2;
-                    day = p3;
-                } else {
-                    day = p1;
-                    month = p2;
-                    year = p3;
-                }
-            }
-
-            int hour = Integer.parseInt(matcher.group(4));
-            int minute = Integer.parseInt(matcher.group(5));
-            int second = Integer.parseInt(matcher.group(6));
-            int offsetHours = Integer.parseInt(matcher.group(7));
-
-            return OffsetDateTime.of(year, month, day, hour, minute, second, 0,
-                    ZoneOffset.ofHours(offsetHours));
-
-        } catch (Exception e) {
-            return null;
-        }
+            return OffsetDateTime.of(y, mo, d, Integer.parseInt(m.group(4)), Integer.parseInt(m.group(5)), Integer.parseInt(m.group(6)), 0, ZoneOffset.ofHours(Integer.parseInt(m.group(7))));
+        } catch(Exception e) { return null; }
     }
-
-    // ==================== SESSION CLASSES ====================
 
     private static class EmbedSession {
         final long userId;
         Message previewMessage;
-        String title;
-        String description;
+        String title, description, thumbnail, image, author, authorUrl, authorIcon, footer, footerIcon, url;
         Color color;
-        String thumbnail;
-        String image;
-        String author;
-        String authorUrl;
-        String authorIcon;
-        String footer;
-        String footerIcon;
-        String url;
         OffsetDateTime timestamp;
         List<EmbedField> fields = new ArrayList<>();
-
-        EmbedSession(long userId) {
-            this.userId = userId;
-        }
-
-        void reset() {
-            title = null;
-            description = null;
-            color = null;
-            thumbnail = null;
-            image = null;
-            author = null;
-            authorUrl = null;
-            authorIcon = null;
-            footer = null;
-            footerIcon = null;
-            url = null;
-            timestamp = null;
-            fields.clear();
-        }
+        EmbedSession(long u) { this.userId = u; }
     }
 
-    private record EmbedField(String name, String value, boolean inline) {
-    }
+    private record EmbedField(String name, String value, boolean inline) {}
 }
-
