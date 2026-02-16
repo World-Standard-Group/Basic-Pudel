@@ -29,6 +29,7 @@ import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEve
 
 import java.awt.Color;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -111,7 +112,7 @@ public class PudelRoleColor {
         String input = event.getOption("input").getAsString().trim();
 
         if (guild == null || member == null) {
-            event.getHook().editOriginal("❌ This command can only be used in a server.").queue();
+            event.getHook().editOriginal("❌ This command can only be used in a server.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -129,7 +130,7 @@ public class PudelRoleColor {
             }
         } catch (Exception e) {
             context.log("error", "Error in rolecolor: " + e.getMessage());
-            event.getHook().editOriginal("❌ An internal error occurred.").queue();
+            event.getHook().editOriginal("❌ An internal error occurred.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
         }
     }
 
@@ -161,7 +162,7 @@ public class PudelRoleColor {
         // Validate Hex
         String cleanHex = hexInput.replace("#", "").toUpperCase();
         if (!HEX_PATTERN.matcher(cleanHex).matches()) {
-            event.getHook().editOriginal("❌ Invalid format. Please use a hex code like `FF0000`.").queue();
+            event.getHook().editOriginal("❌ Invalid format. Please use a hex code like `FF0000`.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -169,7 +170,7 @@ public class PudelRoleColor {
         try {
             color = new Color(Integer.parseInt(cleanHex, 16));
         } catch (NumberFormatException e) {
-            event.getHook().editOriginal("❌ Invalid color code.").queue();
+            event.getHook().editOriginal("❌ Invalid color code.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -216,11 +217,9 @@ public class PudelRoleColor {
 
                     assignmentRepo.save(newAssignment);
 
-                    event.getHook().editOriginal("✅ Color set to `#" + cleanHex + "`!").queue();
+                    event.getHook().editOriginal("✅ Color set to `#" + cleanHex + "`!").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
                 },
-                failure -> {
-                    event.getHook().editOriginal("❌ Failed to assign role. Please check my role hierarchy.").queue();
-                }
+                failure -> event.getHook().editOriginal("❌ Failed to assign role. Please check my role hierarchy.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS))
         );
     }
 

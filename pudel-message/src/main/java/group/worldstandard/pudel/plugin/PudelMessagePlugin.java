@@ -46,6 +46,7 @@ import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -106,7 +107,7 @@ public class PudelMessagePlugin {
     )
     public void handleEmbedCommand(SlashCommandInteractionEvent event) {
         if (!event.isFromGuild()) {
-            event.reply("❌ This command can only be used in a server!").setEphemeral(true).queue();
+            event.reply("❌ This command can only be used in a server!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -138,7 +139,7 @@ public class PudelMessagePlugin {
         EmbedSession session = activeSessions.get(userId);
 
         if (session == null) {
-            event.reply("❌ Session expired! Use `/embed` to start again.").setEphemeral(true).queue();
+            event.reply("❌ Session expired! Use `/embed` to start again.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -168,7 +169,7 @@ public class PudelMessagePlugin {
             case "cancel" -> {
                 if (session.previewMessage != null) session.previewMessage.delete().queue();
                 activeSessions.remove(userId);
-                event.reply("❌ Session cancelled.").setEphemeral(true).queue();
+                event.reply("❌ Session cancelled.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             }
         }
     }
@@ -180,7 +181,7 @@ public class PudelMessagePlugin {
         EmbedSession session = activeSessions.get(userId);
 
         if (session == null) {
-            event.reply("❌ Session expired.").setEphemeral(true).queue();
+            event.reply("❌ Session expired.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -202,9 +203,9 @@ public class PudelMessagePlugin {
                     // Cleanup
                     if (session.previewMessage != null) session.previewMessage.delete().queue();
                     activeSessions.remove(userId);
-                    event.reply("✅ Embed posted in " + targetChannel.getAsMention()).setEphemeral(true).queue();
+                    event.reply("✅ Embed posted in " + targetChannel.getAsMention()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
                 },
-                error -> event.reply("❌ Failed to post: " + error.getMessage()).setEphemeral(true).queue()
+                error -> event.reply("❌ Failed to post: " + error.getMessage()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS))
         );
     }
 
@@ -214,7 +215,7 @@ public class PudelMessagePlugin {
         EmbedSession session = activeSessions.get(userId);
 
         if (session == null) {
-            event.reply("❌ Session expired!").setEphemeral(true).queue();
+            event.reply("❌ Session expired!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -253,14 +254,14 @@ public class PudelMessagePlugin {
                         OffsetDateTime odt = parseTimestamp(ts);
                         if (odt != null) session.timestamp = odt;
                         else {
-                            event.reply("❌ Invalid format! Use: DD-MM-YYYY HH:mm:ss+OFFSET").setEphemeral(true).queue();
+                            event.reply("❌ Invalid format! Use: DD-MM-YYYY HH:mm:ss+OFFSET").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
                             return;
                         }
                     } else session.timestamp = null;
                 }
                 case "field" -> {
                     if (session.fields.size() >= 25) {
-                        event.reply("❌ Max 25 fields!").setEphemeral(true).queue();
+                        event.reply("❌ Max 25 fields!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
                         return;
                     }
                     String name = getModalValue(event, "fieldname");
@@ -273,14 +274,14 @@ public class PudelMessagePlugin {
                     Color c = parseColor(getModalValue(event, "colorhex"));
                     if (c != null) session.color = c;
                     else {
-                        event.reply("❌ Invalid hex!").setEphemeral(true).queue();
+                        event.reply("❌ Invalid hex!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
                         return;
                     }
                 }
             }
             updateSessionPreviewFromModal(event, session);
         } catch (Exception e) {
-            event.reply("❌ Error: " + e.getMessage()).setEphemeral(true).queue();
+            event.reply("❌ Error: " + e.getMessage()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
         }
     }
 
@@ -362,7 +363,7 @@ public class PudelMessagePlugin {
                     .setComponents(getBuilderActionRows())
                     .queue();
         }
-        event.reply("✅ Updated!").setEphemeral(true).queue();
+        event.reply("✅ Updated!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
     }
 
     private List<ActionRow> getBuilderActionRows() {
@@ -375,10 +376,10 @@ public class PudelMessagePlugin {
                         Button.primary(BUTTON_PREFIX + "footer", "📌 Footer")
                 ),
                 ActionRow.of(
-                        Button.secondary(BUTTON_PREFIX + "thumbnail", "🖼️ Thumb"),
-                        Button.secondary(BUTTON_PREFIX + "image", "🌄 Image"),
-                        Button.secondary(BUTTON_PREFIX + "url", "🔗 URL"),
-                        Button.secondary(BUTTON_PREFIX + "timestamp", "⏰ Time")
+                        Button.primary(BUTTON_PREFIX + "thumbnail", "🖼️ Thumb"),
+                        Button.primary(BUTTON_PREFIX + "image", "🌄 Image"),
+                        Button.primary(BUTTON_PREFIX + "url", "🔗 URL"),
+                        Button.primary(BUTTON_PREFIX + "timestamp", "⏰ Time")
                 ),
                 ActionRow.of(
                         Button.success(BUTTON_PREFIX + "field", "➕ Field"),
@@ -500,7 +501,7 @@ public class PudelMessagePlugin {
         e.replyModal(Modal.create(MODAL_PREFIX + "timestamp", "Timestamp")
                 .addComponents(
                         Label.of("Embed Timestamp", TextInput.create("timestamp", TextInputStyle.SHORT)
-                                .setPlaceholder(LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ssX")))
+                                .setPlaceholder(OffsetDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ssX")))
                                 .setRequired(false)
                                 .build()
                         )

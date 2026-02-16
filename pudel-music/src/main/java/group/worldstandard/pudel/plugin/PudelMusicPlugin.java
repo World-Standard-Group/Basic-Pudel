@@ -59,6 +59,7 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 @Plugin(
         name = "Pudel's Music",
@@ -174,7 +175,7 @@ public class PudelMusicPlugin {
         Member member = event.getMember();
 
         if (guild == null || member == null || !member.getVoiceState().inAudioChannel()) {
-            event.getHook().editOriginal("❌ You must be in a voice channel.").queue();
+            event.getHook().editOriginal("❌ You must be in a voice channel.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -190,7 +191,7 @@ public class PudelMusicPlugin {
             @Override
             public void trackLoaded(AudioTrack track) {
                 musicManager.scheduler.queue(track, member.getIdLong());
-                event.getHook().editOriginal("✅ Added to queue: **" + track.getInfo().title + "**").queue();
+                event.getHook().editOriginal("✅ Added to queue: **" + track.getInfo().title + "**").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
             }
 
             @Override
@@ -201,18 +202,18 @@ public class PudelMusicPlugin {
                     for (AudioTrack track : playlist.getTracks()) {
                         musicManager.scheduler.queue(track, member.getIdLong());
                     }
-                    event.getHook().editOriginal("✅ Added **" + playlist.getTracks().size() + "** tracks from playlist.").queue();
+                    event.getHook().editOriginal("✅ Added **" + playlist.getTracks().size() + "** tracks from playlist.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
                 }
             }
 
             @Override
             public void noMatches() {
-                event.getHook().editOriginal("❌ No matches found.").queue();
+                event.getHook().editOriginal("❌ No matches found.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
             }
 
             @Override
             public void loadFailed(FriendlyException exception) {
-                event.getHook().editOriginal("❌ Load failed: " + exception.getMessage()).queue();
+                event.getHook().editOriginal("❌ Load failed: " + exception.getMessage()).queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
             }
         });
     }
@@ -226,7 +227,7 @@ public class PudelMusicPlugin {
         AudioTrack current = mgr.player.getPlayingTrack();
 
         if (current == null) {
-            event.reply("⏹️ Nothing is playing.").setEphemeral(true).queue();
+            event.reply("⏹️ Nothing is playing.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -263,7 +264,7 @@ public class PudelMusicPlugin {
                 .list();
 
         if (queue.isEmpty()) {
-            event.reply("EMPTY QUEUE").setEphemeral(true).queue();
+            event.reply("EMPTY QUEUE").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -290,7 +291,7 @@ public class PudelMusicPlugin {
                 .list();
 
         if (queue.isEmpty()) {
-            event.reply("ℹ️ Queue is empty, nothing to remove.").setEphemeral(true).queue();
+            event.reply("ℹ️ Queue is empty, nothing to remove.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -342,7 +343,7 @@ public class PudelMusicPlugin {
             eb.appendDescription(String.format("`[%s]` [%s](%s)\n", time, h.getTrackTitle(), h.getTrackUrl()));
         }
 
-        event.replyEmbeds(eb.build()).setEphemeral(true).queue();
+        event.replyEmbeds(eb.build()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(10, TimeUnit.SECONDS));
     }
 
     // =========================================================================
@@ -361,11 +362,11 @@ public class PudelMusicPlugin {
             queueRepo.deleteById(dbId);
             event.editMessage("✅ Removed **" + entryOpt.get().getTitle() + "** from the queue.")
                     .setComponents() // Remove the menu
-                    .queue();
+                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
         } else {
             event.editMessage("❌ Track not found or already played.")
                     .setComponents()
-                    .queue();
+                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
         }
     }
 
@@ -375,7 +376,7 @@ public class PudelMusicPlugin {
         List<AudioTrack> tracks = searchCache.get(searchId);
 
         if (tracks == null) {
-            event.reply("❌ Search expired.").setEphemeral(true).queue();
+            event.reply("❌ Search expired.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -387,7 +388,7 @@ public class PudelMusicPlugin {
 
         event.editMessage("✅ Queued: **" + selected.getInfo().title + "**")
                 .setComponents()
-                .queue();
+                .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
 
         searchCache.remove(searchId);
     }
@@ -413,7 +414,7 @@ public class PudelMusicPlugin {
                     .setComponents(ActionRow.of(buildControllerButtons(mgr)))
                     .queue();
         } else {
-            event.reply("⏹️ Queue finished.").setEphemeral(true).queue();
+            event.reply("⏹️ Queue finished.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
         }
     }
 
@@ -467,7 +468,6 @@ public class PudelMusicPlugin {
                 .setDescription("**[" + track.getInfo().title + "](" + track.getInfo().uri + ")**")
                 .setThumbnail(track.getInfo().artworkUrl)
                 .addField("Uploader", track.getInfo().author, true)
-
                 .addField("Loop", loopStatus, true)
                 .addField("Shuffle", shuffleStatus, true)
                 .addField("Time", formatTime(position) + " / " + formatTime(duration), false)
