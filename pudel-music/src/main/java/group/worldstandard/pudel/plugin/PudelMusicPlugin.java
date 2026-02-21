@@ -38,19 +38,32 @@ import group.worldstandard.pudel.api.PluginContext;
 import group.worldstandard.pudel.api.annotation.*;
 import group.worldstandard.pudel.api.database.*;
 import group.worldstandard.pudel.api.event.EventHandler;
-import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.audio.AudioSendHandler;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
+import net.dv8tion.jda.api.components.container.Container;
+import net.dv8tion.jda.api.components.container.ContainerChildComponent;
+import net.dv8tion.jda.api.components.label.Label;
+import net.dv8tion.jda.api.components.section.Section;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
+import net.dv8tion.jda.api.components.separator.Separator;
+import net.dv8tion.jda.api.components.textdisplay.TextDisplay;
+import net.dv8tion.jda.api.components.textinput.TextInput;
+import net.dv8tion.jda.api.components.textinput.TextInputStyle;
+import net.dv8tion.jda.api.components.thumbnail.Thumbnail;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
+import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
+import net.dv8tion.jda.api.modals.Modal;
+import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
+import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
 
-import java.awt.*;
+import java.awt.Color;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -61,64 +74,83 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Unified Music Plugin for Pudel Discord Bot
+ * <p>
+ * Single {@code /music} command opens a Components v2 "Music Box" with:
+ * <ul>
+ *   <li>Now-playing display with artwork, progress, loop/shuffle status</li>
+ *   <li>Playback controls: Pause, Skip, Loop, Shuffle</li>
+ *   <li>Navigation: Queue Song, Queue View, History</li>
+ *   <li>Paginated queue and history views with manipulation buttons</li>
+ * </ul>
+ *
+ * @author Zazalng
+ * @version 3.0.0
+ */
 @Plugin(
         name = "Pudel's Music",
-        version = "2.2.0",
+        version = "3.0.0",
         author = "Zazalng",
-        description = "Database-backed Music Queue with advanced controls"
+        description = "Unified Music Box with Components v2"
 )
 public class PudelMusicPlugin {
 
+    // ==================== CONSTANTS ====================
+    private static final String BTN = "music:";
+    private static final String MODAL_PREFIX = "music:modal:";
+    private static final String MENU_PREFIX = "music:menu:";
+
+    private static final int PAGE_SIZE = 10;
+    private static final Color ACCENT_PLAYING = new Color(0x00D4AA);
+    private static final Color ACCENT_IDLE = new Color(0x2B2D31);
+    private static final Color ACCENT_QUEUE = new Color(0xFFA500);
+    private static final Color ACCENT_HISTORY = new Color(0x808080);
+
+    // ==================== STATE ====================
     private PluginContext context;
     private PluginDatabaseManager db;
     private AudioPlayerManager playerManager;
 
-    // Repositories
     private PluginRepository<QueueEntry> queueRepo;
     private PluginRepository<HistoryEntry> historyRepo;
 
-    // Runtime Cache
     private final Map<Long, GuildMusicManager> musicManagers = new ConcurrentHashMap<>();
+    private final Map<Long, MusicSession> activeSessions = new ConcurrentHashMap<>();
     private final Map<String, List<AudioTrack>> searchCache = new ConcurrentHashMap<>();
+
+    // ==================== LIFECYCLE ====================
 
     @OnEnable
     public void onEnable(PluginContext ctx) {
         this.context = ctx;
         this.db = ctx.getDatabaseManager();
-
         initializeDatabase();
         initializeLavaPlayer();
-
-        ctx.log("info", "Music Plugin Loaded. DB & Audio System Ready.");
+        ctx.log("info", "Music Plugin v3.0.0 loaded (Components v2)");
     }
 
     @OnShutdown
     public boolean onShutdown(PluginContext ctx) {
-        // Clean up players
         musicManagers.values().forEach(m -> m.player.destroy());
         playerManager.shutdown();
         return true;
     }
 
-    // =========================================================================
-    // 1. Database & Initialization
-    // =========================================================================
+    // ==================== DATABASE ====================
 
     private void initializeDatabase() {
-        // Queue Table: Stores the current state of the playlist
         TableSchema queueSchema = TableSchema.builder("music_queue")
                 .column("guild_id", ColumnType.BIGINT, false)
                 .column("user_id", ColumnType.BIGINT, false)
-                .column("track_blob", ColumnType.TEXT, false) // Base64 encoded track
-                .column("status", ColumnType.STRING, 20, false, "'QUEUE'") // QUEUE, PLAYED, CURRENT
-                .column("title", ColumnType.STRING, 255, true) // For display/debug
+                .column("track_blob", ColumnType.TEXT, false)
+                .column("status", ColumnType.STRING, 20, false, "'QUEUE'")
+                .column("title", ColumnType.STRING, 255, true)
                 .column("is_looped", ColumnType.BOOLEAN, false, "false")
                 .index("guild_id")
                 .build();
-
         db.createTable(queueSchema);
 
-        // History Table: Immutable log
         TableSchema historySchema = TableSchema.builder("music_history")
                 .column("guild_id", ColumnType.BIGINT, false)
                 .column("user_id", ColumnType.BIGINT, false)
@@ -127,12 +159,13 @@ public class PudelMusicPlugin {
                 .column("played_at", ColumnType.BIGINT, false)
                 .index("guild_id")
                 .build();
-
         db.createTable(historySchema);
 
         this.queueRepo = db.getRepository("music_queue", QueueEntry.class);
         this.historyRepo = db.getRepository("music_history", HistoryEntry.class);
     }
+
+    // ==================== LAVAPLAYER ====================
 
     private void initializeLavaPlayer() {
         this.playerManager = new DefaultAudioPlayerManager();
@@ -161,349 +194,725 @@ public class PudelMusicPlugin {
         );
     }
 
-    // =========================================================================
-    // 2. Command Handlers
-    // =========================================================================
+    // ==================== SLASH COMMAND ====================
 
-    @SlashCommand(name = "play", description = "Play a song or search", options = {
-            @CommandOption(name = "query", description = "URL or Search Term", required = true)
-    })
-    public void onPlay(SlashCommandInteractionEvent event) {
-        event.deferReply().setEphemeral(true).queue();
-        String query = event.getOption("query").getAsString();
+    @SlashCommand(name = "music", description = "Open the Music Box")
+    public void onMusic(SlashCommandInteractionEvent event) {
         Guild guild = event.getGuild();
         Member member = event.getMember();
 
-        if (guild == null || member == null || !member.getVoiceState().inAudioChannel()) {
-            event.getHook().editOriginal("❌ You must be in a voice channel.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
+        if (guild == null || member == null) {
+            event.reply("❌ This command can only be used in a server!").setEphemeral(true)
+                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
-        GuildMusicManager musicManager = getGuildAudioPlayer(guild);
+        long userId = event.getUser().getIdLong();
 
-        if (!guild.getAudioManager().isConnected()) {
-            guild.getAudioManager().openAudioConnection(member.getVoiceState().getChannel());
+        // Clean old session
+        MusicSession old = activeSessions.get(userId);
+        if (old != null && old.message != null) {
+            old.message.delete().queue(null, e -> {});
         }
 
-        String searchPrefix = query.startsWith("http") ? "" : "ytsearch:";
+        MusicSession session = new MusicSession(userId, guild.getIdLong());
+        activeSessions.put(userId, session);
 
-        playerManager.loadItemOrdered(musicManager, searchPrefix + query, new AudioLoadResultHandler() {
-            @Override
-            public void trackLoaded(AudioTrack track) {
-                musicManager.scheduler.queue(track, member.getIdLong());
-                event.getHook().editOriginal("✅ Added to queue: **" + track.getInfo().title + "**").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
-            }
+        GuildMusicManager mgr = getGuildAudioPlayer(guild);
 
-            @Override
-            public void playlistLoaded(AudioPlaylist playlist) {
-                if (playlist.isSearchResult()) {
-                    handleSearchResults(event, playlist);
-                } else {
-                    for (AudioTrack track : playlist.getTracks()) {
-                        musicManager.scheduler.queue(track, member.getIdLong());
-                    }
-                    event.getHook().editOriginal("✅ Added **" + playlist.getTracks().size() + "** tracks from playlist.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
+        // Resume from stale queue if nothing is playing
+        if (mgr.player.getPlayingTrack() == null) {
+            recoverStaleQueue(guild.getIdLong());
+
+            // Auto-join voice and start playback if queue has entries
+            boolean hasQueue = !queueRepo.query()
+                    .where("guild_id", guild.getIdLong())
+                    .where("status", "QUEUE")
+                    .limit(1).list().isEmpty();
+
+            if (hasQueue && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
+                if (!guild.getAudioManager().isConnected()) {
+                    guild.getAudioManager().openAudioConnection(member.getVoiceState().getChannel());
                 }
+                mgr.scheduler.nextTrack();
             }
+        }
 
-            @Override
-            public void noMatches() {
-                event.getHook().editOriginal("❌ No matches found.").queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
-            }
-
-            @Override
-            public void loadFailed(FriendlyException exception) {
-                event.getHook().editOriginal("❌ Load failed: " + exception.getMessage()).queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
-            }
-        });
+        event.reply(
+                new MessageCreateBuilder()
+                        .useComponentsV2(true)
+                        .setComponents(buildMainView(mgr, session))
+                        .build()
+        ).setEphemeral(true).queue(hook -> hook.retrieveOriginal().queue(msg -> session.message = msg));
     }
 
-    @SlashCommand(name = "np", description = "Show Music Controller")
-    public void onNowPlaying(SlashCommandInteractionEvent event) {
+    // ==================== BUTTON HANDLER ====================
+
+    @ButtonHandler(BTN)
+    public void onButton(ButtonInteractionEvent event) {
+        long userId = event.getUser().getIdLong();
+        MusicSession session = activeSessions.get(userId);
+
+        if (session == null) {
+            event.reply("❌ Session expired! Use `/music` to open a new Music Box.")
+                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            return;
+        }
+
         Guild guild = event.getGuild();
         if (guild == null) return;
 
         GuildMusicManager mgr = getGuildAudioPlayer(guild);
-        AudioTrack current = mgr.player.getPlayingTrack();
+        String id = event.getComponentId().substring(BTN.length());
 
-        if (current == null) {
-            event.reply("⏹️ Nothing is playing.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+        switch (id) {
+            // ---- Playback Controls ----
+            case "pause" -> {
+                mgr.player.setPaused(!mgr.player.isPaused());
+                editToMainView(event, mgr, session);
+            }
+            case "skip" -> {
+                mgr.scheduler.nextTrack();
+                editToMainView(event, mgr, session);
+            }
+            case "loop" -> {
+                mgr.scheduler.cycleLoopMode();
+                editToMainView(event, mgr, session);
+            }
+            case "shuffle" -> {
+                mgr.scheduler.toggleShuffle();
+                editToMainView(event, mgr, session);
+            }
+
+            // ---- Navigation ----
+            case "queuesong" -> showQueueSongModal(event);
+            case "queueview" -> {
+                session.view = View.QUEUE;
+                session.page = 0;
+                editToQueueView(event, session);
+            }
+            case "history" -> {
+                session.view = View.HISTORY;
+                session.page = 0;
+                editToHistoryView(event, session);
+            }
+            case "back" -> {
+                session.view = View.MAIN;
+                session.page = 0;
+                editToMainView(event, mgr, session);
+            }
+
+            // ---- Queue View Controls ----
+            case "qprev" -> {
+                session.page = Math.max(0, session.page - 1);
+                editToQueueView(event, session);
+            }
+            case "qnext" -> {
+                session.page++;
+                editToQueueView(event, session);
+            }
+            case "remove" -> showRemoveMenu(event, session);
+            case "reindex" -> {
+                reindexQueue(session);
+                editToQueueView(event, session);
+            }
+            case "clearqueue" -> {
+                clearGuildQueue(session.guildId);
+                session.page = 0;
+                editToQueueView(event, session);
+            }
+
+            // ---- History View Controls ----
+            case "hprev" -> {
+                session.page = Math.max(0, session.page - 1);
+                editToHistoryView(event, session);
+            }
+            case "hnext" -> {
+                session.page++;
+                editToHistoryView(event, session);
+            }
+
+            // ---- Voice Join ----
+            case "join" -> {
+                Member member = event.getMember();
+                if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
+                    guild.getAudioManager().openAudioConnection(member.getVoiceState().getChannel());
+                    editToMainView(event, mgr, session);
+                } else {
+                    event.reply("❌ You must be in a voice channel!")
+                            .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+                }
+            }
+        }
+    }
+
+    // ==================== MODAL HANDLER ====================
+
+    @ModalHandler(MODAL_PREFIX)
+    public void onModal(ModalInteractionEvent event) {
+        long userId = event.getUser().getIdLong();
+        MusicSession session = activeSessions.get(userId);
+
+        if (session == null) {
+            event.reply("❌ Session expired!").setEphemeral(true)
+                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
-        sendController(event, mgr, current);
+        String modalId = event.getModalId().substring(MODAL_PREFIX.length());
+
+        if ("queuesong".equals(modalId)) {
+            String query = getModalValue(event, "query");
+
+            if (query.isEmpty()) {
+                event.reply("❌ Please enter a search query or URL!").setEphemeral(true)
+                        .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+                return;
+            }
+
+            // Read source selection (StringSelectMenu returns STRING_SELECT type)
+            var sourceMapping = event.getValue("source");
+            String source = "auto";
+            if (sourceMapping != null && !sourceMapping.getAsStringList().isEmpty()) {
+                source = sourceMapping.getAsStringList().getFirst();
+            }
+
+            // Build search prefix
+            String searchPrefix;
+            if (query.startsWith("http")) {
+                searchPrefix = "";
+            } else {
+                searchPrefix = switch (source) {
+                    case "youtube" -> "ytsearch:";
+                    case "soundcloud" -> "scsearch:";
+                    default -> "ytsearch:"; // auto
+                };
+            }
+
+            Guild guild = event.getGuild();
+            if (guild == null) return;
+
+            Member member = event.getMember();
+            GuildMusicManager mgr = getGuildAudioPlayer(guild);
+
+            // Auto-join voice if not connected
+            if (!guild.getAudioManager().isConnected() && member != null
+                    && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
+                guild.getAudioManager().openAudioConnection(member.getVoiceState().getChannel());
+            }
+
+            // Acknowledge the modal
+            event.reply("🔍 Loading...").setEphemeral(true)
+                    .queue(m -> m.deleteOriginal().queueAfter(3, TimeUnit.SECONDS));
+
+            playerManager.loadItemOrdered(mgr, searchPrefix + query, new AudioLoadResultHandler() {
+                @Override
+                public void trackLoaded(AudioTrack track) {
+                    mgr.scheduler.queue(track, userId);
+                    updateSessionMessage(session, mgr);
+                }
+
+                @Override
+                public void playlistLoaded(AudioPlaylist playlist) {
+                    if (playlist.isSearchResult()) {
+                        handleSearchResults(session, playlist);
+                    } else {
+                        for (AudioTrack track : playlist.getTracks()) {
+                            mgr.scheduler.queue(track, userId);
+                        }
+                        updateSessionMessage(session, mgr);
+                    }
+                }
+
+                @Override
+                public void noMatches() { /* Music Box stays as-is */ }
+
+                @Override
+                public void loadFailed(FriendlyException exception) { /* Music Box stays as-is */ }
+            });
+        }
     }
 
-    // --- NEW: Queue Manipulation (Requirement 5) ---
+    // ==================== SELECT MENU HANDLER ====================
 
-    @SlashCommand(
-            name = "queue",
-            description = "Manage the music queue",
-            subcommands = {
-                    @Subcommand(name = "view", description = "View upcoming songs"),
-                    @Subcommand(name = "remove", description = "Remove a song from the queue")
-            }
-    )
-    public void onQueue(SlashCommandInteractionEvent event) {
-        String subcommand = event.getSubcommandName();
+    @SelectMenuHandler(MENU_PREFIX)
+    public void onSelectMenu(StringSelectInteractionEvent event) {
+        long userId = event.getUser().getIdLong();
+        MusicSession session = activeSessions.get(userId);
+        if (session == null) return;
+
         Guild guild = event.getGuild();
         if (guild == null) return;
 
-        if ("view".equals(subcommand)) {
-            handleQueueView(event, guild);
-        } else if ("remove".equals(subcommand)) {
-            handleQueueRemove(event, guild);
-        }
-    }
+        String menuId = event.getComponentId();
 
-    private void handleQueueView(SlashCommandInteractionEvent event, Guild guild) {
-        List<QueueEntry> queue = queueRepo.query()
-                .where("guild_id", guild.getIdLong())
-                .where("status", "QUEUE")
-                .limit(20) // Limit display
-                .list();
+        // Search result selection
+        if (menuId.startsWith(MENU_PREFIX + "select:")) {
+            String searchId = menuId.substring((MENU_PREFIX + "select:").length());
+            List<AudioTrack> tracks = searchCache.get(searchId);
 
-        if (queue.isEmpty()) {
-            event.reply("EMPTY QUEUE").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            if (tracks == null) {
+                event.reply("❌ Search expired.").setEphemeral(true)
+                        .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+                return;
+            }
+
+            int index = Integer.parseInt(event.getValues().getFirst());
+            AudioTrack selected = tracks.get(index);
+
+            GuildMusicManager mgr = getGuildAudioPlayer(guild);
+            mgr.scheduler.queue(selected, userId);
+            searchCache.remove(searchId);
+
+            // Return to main view
+            session.view = View.MAIN;
+            event.editMessage(
+                    new MessageEditBuilder()
+                            .useComponentsV2(true)
+                            .setComponents(buildMainView(mgr, session))
+                            .build()
+            ).queue();
             return;
         }
 
-        EmbedBuilder eb = new EmbedBuilder();
-        eb.setTitle("🎵 Upcoming Queue");
+        // Queue remove selection
+        if (menuId.equals(MENU_PREFIX + "remove")) {
+            String dbIdStr = event.getValues().getFirst();
+            long dbId = Long.parseLong(dbIdStr);
+
+            Optional<QueueEntry> entryOpt = queueRepo.findById(dbId);
+            if (entryOpt.isPresent() && entryOpt.get().getGuildId() == session.guildId) {
+                queueRepo.deleteById(dbId);
+            }
+
+            // Return to queue view
+            session.view = View.QUEUE;
+            event.editMessage(
+                    new MessageEditBuilder()
+                            .useComponentsV2(true)
+                            .setComponents(buildQueueView(session))
+                            .build()
+            ).queue();
+        }
+    }
+
+    // ==================== VIEW BUILDERS ====================
+
+    private Container buildMainView(GuildMusicManager mgr, MusicSession session) {
+        AudioTrack current = mgr.player.getPlayingTrack();
+        List<ContainerChildComponent> children = new ArrayList<>();
+
+        if (current != null) {
+            // Now Playing with thumbnail
+            String titleText = "### 🎵 [" + current.getInfo().title + "](" + current.getInfo().uri + ")";
+
+            if (current.getInfo().artworkUrl != null && !current.getInfo().artworkUrl.isEmpty()) {
+                children.add(Section.of(
+                        Thumbnail.fromUrl(current.getInfo().artworkUrl),
+                        TextDisplay.of(titleText),
+                        TextDisplay.of("-# " + current.getInfo().author)
+                ));
+            } else {
+                children.add(TextDisplay.of(titleText));
+                children.add(TextDisplay.of("-# " + current.getInfo().author));
+            }
+
+            children.add(Separator.create(false, Separator.Spacing.SMALL));
+
+            // Progress & Status
+            String loopIcon = switch (mgr.scheduler.loopMode) {
+                case 1 -> "🔁 Queue";
+                case 2 -> "🔂 Track";
+                default -> "➡ Off";
+            };
+            String shuffleIcon = mgr.scheduler.shuffle ? "🔀 On" : "➡ Off";
+            String pauseIcon = mgr.player.isPaused() ? "⏸ Paused" : "▶ Playing";
+
+            children.add(TextDisplay.of(
+                    "⏱ " + formatTime(current.getPosition()) + " / " + formatTime(current.getDuration())
+                            + "\u2003\u2003" + pauseIcon
+                            + "\n🔁 Loop: " + loopIcon + "\u2003\u2003🔀 Shuffle: " + shuffleIcon
+            ));
+
+            children.add(Separator.create(true, Separator.Spacing.SMALL));
+
+            // Playback controls
+            boolean isPaused = mgr.player.isPaused();
+            children.add(ActionRow.of(
+                    Button.primary(BTN + "pause", isPaused ? "▶ Resume" : "⏸ Pause"),
+                    Button.secondary(BTN + "skip", "⏭ Skip"),
+                    Button.secondary(BTN + "loop", "🔁 Loop"),
+                    Button.secondary(BTN + "shuffle", "🔀 Shuffle")
+            ));
+        } else {
+            children.add(TextDisplay.of("# 🎵 Music Box"));
+            children.add(Separator.create(false, Separator.Spacing.SMALL));
+            children.add(TextDisplay.of("_No track playing. Queue a song to get started!_"));
+            children.add(Separator.create(true, Separator.Spacing.SMALL));
+        }
+
+        // Navigation
+        children.add(ActionRow.of(
+                Button.success(BTN + "queuesong", "🎵 Queue Song"),
+                Button.primary(BTN + "queueview", "📋 Queue"),
+                Button.secondary(BTN + "history", "📜 History")
+        ));
+
+        Color accent = current != null ? ACCENT_PLAYING : ACCENT_IDLE;
+        return Container.of(children).withAccentColor(accent);
+    }
+
+    private Container buildQueueView(MusicSession session) {
+        List<QueueEntry> queue = queueRepo.query()
+                .where("guild_id", session.guildId)
+                .where("status", "QUEUE")
+                .list();
+
+        int totalItems = queue.size();
+        int totalPages = Math.max(1, (int) Math.ceil((double) totalItems / PAGE_SIZE));
+        session.page = Math.min(session.page, totalPages - 1);
+
+        List<ContainerChildComponent> children = new ArrayList<>();
+        children.add(TextDisplay.of("# 📋 Queue"));
+        children.add(Separator.create(true, Separator.Spacing.SMALL));
+
+        if (queue.isEmpty()) {
+            children.add(TextDisplay.of("_Queue is empty. Use **🎵 Queue Song** to add tracks!_"));
+        } else {
+            int start = session.page * PAGE_SIZE;
+            int end = Math.min(start + PAGE_SIZE, totalItems);
+
+            StringBuilder sb = new StringBuilder();
+            for (int i = start; i < end; i++) {
+                QueueEntry entry = queue.get(i);
+                String title = entry.getTitle();
+                if (title.length() > 60) title = title.substring(0, 57) + "...";
+                sb.append(String.format("`%d.` %s\n", i + 1, title));
+            }
+            children.add(TextDisplay.of(sb.toString()));
+            children.add(TextDisplay.of("-# Page " + (session.page + 1) + "/" + totalPages
+                    + " • " + totalItems + " tracks total"));
+        }
+
+        children.add(Separator.create(true, Separator.Spacing.SMALL));
+
+        // Pagination + manipulation
+        children.add(ActionRow.of(
+                Button.secondary(BTN + "qprev", "◀").withDisabled(session.page <= 0),
+                Button.secondary(BTN + "qnext", "▶").withDisabled(session.page >= totalPages - 1),
+                Button.danger(BTN + "remove", "🗑 Remove").withDisabled(queue.isEmpty()),
+                Button.secondary(BTN + "reindex", "🔀 Shuffle Queue").withDisabled(queue.isEmpty()),
+                Button.danger(BTN + "clearqueue", "🧹 Clear All").withDisabled(queue.isEmpty())
+        ));
+        children.add(ActionRow.of(
+                Button.primary(BTN + "back", "🔙 Back to Player")
+        ));
+
+        return Container.of(children).withAccentColor(ACCENT_QUEUE);
+    }
+
+    private Container buildHistoryView(MusicSession session) {
+        List<HistoryEntry> history = historyRepo.query()
+                .where("guild_id", session.guildId)
+                .orderByDesc("played_at")
+                .list();
+
+        int totalItems = history.size();
+        int totalPages = Math.max(1, (int) Math.ceil((double) totalItems / PAGE_SIZE));
+        session.page = Math.min(session.page, totalPages - 1);
+
+        List<ContainerChildComponent> children = new ArrayList<>();
+        children.add(TextDisplay.of("# 📜 History"));
+        children.add(Separator.create(true, Separator.Spacing.SMALL));
+
+        if (history.isEmpty()) {
+            children.add(TextDisplay.of("_No history yet. Play some music!_"));
+        } else {
+            int start = session.page * PAGE_SIZE;
+            int end = Math.min(start + PAGE_SIZE, totalItems);
+
+            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm");
+            StringBuilder sb = new StringBuilder();
+            for (int i = start; i < end; i++) {
+                HistoryEntry h = history.get(i);
+                String time = sdf.format(new Date(h.getPlayedAt()));
+                String title = h.getTrackTitle();
+                if (title.length() > 50) title = title.substring(0, 47) + "...";
+                sb.append(String.format("`[%s]` [%s](%s)\n", time, title, h.getTrackUrl()));
+            }
+            children.add(TextDisplay.of(sb.toString()));
+            children.add(TextDisplay.of("-# Page " + (session.page + 1) + "/" + totalPages
+                    + " • " + totalItems + " entries"));
+        }
+
+        children.add(Separator.create(true, Separator.Spacing.SMALL));
+
+        children.add(ActionRow.of(
+                Button.secondary(BTN + "hprev", "◀").withDisabled(session.page <= 0),
+                Button.secondary(BTN + "hnext", "▶").withDisabled(session.page >= totalPages - 1),
+                Button.primary(BTN + "back", "🔙 Back to Player")
+        ));
+
+        return Container.of(children).withAccentColor(ACCENT_HISTORY);
+    }
+
+    private Container buildSearchView(MusicSession session, List<AudioTrack> tracks, String searchId) {
+        List<ContainerChildComponent> children = new ArrayList<>();
+        children.add(TextDisplay.of("# 🔍 Search Results"));
+        children.add(Separator.create(true, Separator.Spacing.SMALL));
+
         StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < tracks.size(); i++) {
+            AudioTrack t = tracks.get(i);
+            String title = t.getInfo().title;
+            if (title.length() > 60) title = title.substring(0, 57) + "...";
+            sb.append(String.format("`%d.` **%s** — %s (%s)\n",
+                    i + 1, title, t.getInfo().author, formatTime(t.getDuration())));
+        }
+        children.add(TextDisplay.of(sb.toString()));
 
-        for (int i = 0; i < queue.size(); i++) {
-            sb.append(String.format("`%d.` %s\n", i + 1, queue.get(i).getTitle()));
+        // Select menu
+        StringSelectMenu.Builder menu = StringSelectMenu.create(MENU_PREFIX + "select:" + searchId)
+                .setPlaceholder("Select a track to queue...");
+
+        for (int i = 0; i < tracks.size(); i++) {
+            AudioTrack t = tracks.get(i);
+            String label = (i + 1) + ". " + t.getInfo().title;
+            if (label.length() > 100) label = label.substring(0, 97) + "...";
+            menu.addOption(label, String.valueOf(i), t.getInfo().author);
         }
 
-        eb.setDescription(sb.toString());
-        eb.setFooter("Total: " + queue.size());
-        eb.setColor(Color.ORANGE);
+        children.add(ActionRow.of(menu.build()));
+        children.add(Separator.create(true, Separator.Spacing.SMALL));
+        children.add(ActionRow.of(
+                Button.primary(BTN + "back", "🔙 Cancel")
+        ));
 
-        event.replyEmbeds(eb.build()).setEphemeral(true).queue();
+        return Container.of(children).withAccentColor(ACCENT_PLAYING);
     }
 
-    private void handleQueueRemove(SlashCommandInteractionEvent event, Guild guild) {
-        List<QueueEntry> queue = queueRepo.query()
-                .where("guild_id", guild.getIdLong())
-                .where("status", "QUEUE")
-                .limit(25) // Max select menu options
-                .list();
+    private Container buildRemoveView(MusicSession session, List<QueueEntry> queue) {
+        List<ContainerChildComponent> children = new ArrayList<>();
+        children.add(TextDisplay.of("# 🗑 Remove from Queue"));
+        children.add(Separator.create(true, Separator.Spacing.SMALL));
+        children.add(TextDisplay.of("Select a track to remove:"));
 
-        if (queue.isEmpty()) {
-            event.reply("ℹ️ Queue is empty, nothing to remove.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
+        StringSelectMenu.Builder menu = StringSelectMenu.create(MENU_PREFIX + "remove")
+                .setPlaceholder("Select a track to remove...");
 
-        StringSelectMenu.Builder menu = StringSelectMenu.create("music:remove:" + guild.getId());
-        menu.setPlaceholder("Select a song to remove...");
-
-        for (int i = 0; i < queue.size(); i++) {
+        for (int i = 0; i < Math.min(25, queue.size()); i++) {
             QueueEntry entry = queue.get(i);
             String label = (i + 1) + ". " + entry.getTitle();
-            // Truncate label if too long for Discord API
             if (label.length() > 100) label = label.substring(0, 97) + "...";
-
-            // Value is the Database ID
             menu.addOption(label, String.valueOf(entry.getId()));
         }
 
-        event.reply("🗑️ **Select a song to remove:**")
-                .setComponents(ActionRow.of(menu.build()))
-                .setEphemeral(true)
-                .queue();
+        children.add(ActionRow.of(menu.build()));
+        children.add(Separator.create(true, Separator.Spacing.SMALL));
+        children.add(ActionRow.of(
+                Button.primary(BTN + "queueview", "🔙 Back to Queue")
+        ));
+
+        return Container.of(children).withAccentColor(ACCENT_QUEUE);
     }
 
-    // --- NEW: History Viewing (Requirement 6) ---
+    // ==================== VIEW EDIT HELPERS ====================
 
-    @SlashCommand(name = "history", description = "View recently played songs")
-    public void onHistory(SlashCommandInteractionEvent event) {
-        Guild guild = event.getGuild();
-        if (guild == null) return;
+    private void editToMainView(ButtonInteractionEvent event, GuildMusicManager mgr, MusicSession session) {
+        session.view = View.MAIN;
+        event.editMessage(
+                new MessageEditBuilder()
+                        .useComponentsV2(true)
+                        .setComponents(buildMainView(mgr, session))
+                        .build()
+        ).queue();
+    }
 
-        List<HistoryEntry> history = historyRepo.query()
-                .where("guild_id", guild.getIdLong())
-                .orderByDesc("played_at")
-                .limit(10)
+    private void editToQueueView(ButtonInteractionEvent event, MusicSession session) {
+        event.editMessage(
+                new MessageEditBuilder()
+                        .useComponentsV2(true)
+                        .setComponents(buildQueueView(session))
+                        .build()
+        ).queue();
+    }
+
+    private void editToHistoryView(ButtonInteractionEvent event, MusicSession session) {
+        event.editMessage(
+                new MessageEditBuilder()
+                        .useComponentsV2(true)
+                        .setComponents(buildHistoryView(session))
+                        .build()
+        ).queue();
+    }
+
+    /** Update the stored message reference asynchronously (after audio load completes) */
+    private void updateSessionMessage(MusicSession session, GuildMusicManager mgr) {
+        if (session.message != null) {
+            session.view = View.MAIN;
+            session.message.editMessage(
+                    new MessageEditBuilder()
+                            .useComponentsV2(true)
+                            .setComponents(buildMainView(mgr, session))
+                            .build()
+            ).queue();
+        }
+    }
+
+    // ==================== MODAL BUILDERS ====================
+
+    private void showQueueSongModal(ButtonInteractionEvent event) {
+        StringSelectMenu sourceMenu = StringSelectMenu.create("source")
+                .setPlaceholder("Search source")
+                .addOption("🔍 Auto-detect (URL or YouTube)", "auto")
+                .addOption("▶ YouTube", "youtube")
+                .addOption("☁ SoundCloud", "soundcloud")
+                .build();
+
+        event.replyModal(Modal.create(MODAL_PREFIX + "queuesong", "Queue a Song")
+                .addComponents(
+                        Label.of("URL or Search Query", TextInput.create("query", TextInputStyle.SHORT)
+                                .setPlaceholder("Paste a URL or type a search query...")
+                                .setMaxLength(500)
+                                .setRequired(true)
+                                .build()
+                        ),
+                        Label.of("Search Source", sourceMenu)
+                ).build()
+        ).queue();
+    }
+
+    private void showRemoveMenu(ButtonInteractionEvent event, MusicSession session) {
+        List<QueueEntry> queue = queueRepo.query()
+                .where("guild_id", session.guildId)
+                .where("status", "QUEUE")
+                .limit(25)
                 .list();
 
-        if (history.isEmpty()) {
-            event.reply("ℹ️ No history found.").setEphemeral(true).queue();
+        if (queue.isEmpty()) {
+            event.reply("ℹ️ Queue is empty!").setEphemeral(true)
+                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
-        EmbedBuilder eb = new EmbedBuilder();
-        eb.setTitle("📜 Recent History");
-        eb.setColor(Color.GRAY);
-
-        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm");
-
-        for (HistoryEntry h : history) {
-            String time = sdf.format(new Date(h.getPlayedAt()));
-            eb.appendDescription(String.format("`[%s]` [%s](%s)\n", time, h.getTrackTitle(), h.getTrackUrl()));
-        }
-
-        event.replyEmbeds(eb.build()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(10, TimeUnit.SECONDS));
+        event.editMessage(
+                new MessageEditBuilder()
+                        .useComponentsV2(true)
+                        .setComponents(buildRemoveView(session, queue))
+                        .build()
+        ).queue();
     }
 
-    // =========================================================================
-    // 3. Interaction Handlers
-    // =========================================================================
+    // ==================== SEARCH RESULT HANDLING ====================
 
-    @SelectMenuHandler("music:remove:")
-    public void onQueueRemoveSelect(StringSelectInteractionEvent event) {
-        String dbIdStr = event.getValues().getFirst();
-        long dbId = Long.parseLong(dbIdStr);
-
-        // Verify it belongs to this guild for security
-        Optional<QueueEntry> entryOpt = queueRepo.findById(dbId);
-
-        if (entryOpt.isPresent() && entryOpt.get().getGuildId() == event.getGuild().getIdLong()) {
-            queueRepo.deleteById(dbId);
-            event.editMessage("✅ Removed **" + entryOpt.get().getTitle() + "** from the queue.")
-                    .setComponents() // Remove the menu
-                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-        } else {
-            event.editMessage("❌ Track not found or already played.")
-                    .setComponents()
-                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-        }
-    }
-
-    @SelectMenuHandler("music:select:")
-    public void onSearchSelect(StringSelectInteractionEvent event) {
-        String searchId = event.getComponentId().split(":")[2];
-        List<AudioTrack> tracks = searchCache.get(searchId);
-
-        if (tracks == null) {
-            event.reply("❌ Search expired.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        int index = Integer.parseInt(event.getValues().getFirst());
-        AudioTrack selected = tracks.get(index);
-
-        GuildMusicManager mgr = getGuildAudioPlayer(event.getGuild());
-        mgr.scheduler.queue(selected, event.getUser().getIdLong());
-
-        event.editMessage("✅ Queued: **" + selected.getInfo().title + "**")
-                .setComponents()
-                .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-
-        searchCache.remove(searchId);
-    }
-
-    @ButtonHandler("music:ctrl:")
-    public void onControllerButton(ButtonInteractionEvent event) {
-        String action = event.getComponentId().split(":")[2];
-        GuildMusicManager mgr = getGuildAudioPlayer(event.getGuild());
-
-        switch (action) {
-            case "pause" -> {
-                boolean paused = !mgr.player.isPaused();
-                mgr.player.setPaused(paused);
-            }
-            case "skip" -> mgr.scheduler.nextTrack();
-            case "loop" -> mgr.scheduler.cycleLoopMode();
-            case "shuffle" -> mgr.scheduler.toggleShuffle();
-        }
-
-        AudioTrack track = mgr.player.getPlayingTrack();
-        if (track != null) {
-            event.editMessageEmbeds(buildControllerEmbed(mgr, track).build())
-                    .setComponents(ActionRow.of(buildControllerButtons(mgr)))
-                    .queue();
-        } else {
-            event.reply("⏹️ Queue finished.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-        }
-    }
-
-    private void handleSearchResults(SlashCommandInteractionEvent event, AudioPlaylist playlist) {
+    private void handleSearchResults(MusicSession session, AudioPlaylist playlist) {
         List<AudioTrack> tracks = playlist.getTracks().subList(0, Math.min(5, playlist.getTracks().size()));
         String searchId = UUID.randomUUID().toString();
         searchCache.put(searchId, tracks);
 
-        StringSelectMenu.Builder menu = StringSelectMenu.create("music:select:" + searchId)
-                .setPlaceholder("Select a track to play...");
+        if (session.message != null) {
+            session.view = View.SEARCH;
+            session.message.editMessage(
+                    new MessageEditBuilder()
+                            .useComponentsV2(true)
+                            .setComponents(buildSearchView(session, tracks, searchId))
+                            .build()
+            ).queue();
+        }
+    }
 
-        for (int i = 0; i < tracks.size(); i++) {
-            AudioTrack t = tracks.get(i);
-            menu.addOption(
-                    (i + 1) + ". " + t.getInfo().title.substring(0, Math.min(90, t.getInfo().title.length())),
-                    String.valueOf(i),
-                    t.getInfo().author
-            );
+    // ==================== QUEUE MANIPULATION ====================
+
+    private void reindexQueue(MusicSession session) {
+        List<QueueEntry> queue = queueRepo.query()
+                .where("guild_id", session.guildId)
+                .where("status", "QUEUE")
+                .list();
+
+        if (queue.size() <= 1) return;
+
+        // Shuffle queue order: delete all then re-insert in random order
+        Collections.shuffle(queue);
+        for (QueueEntry entry : queue) {
+            queueRepo.deleteById(entry.getId());
+        }
+        for (QueueEntry entry : queue) {
+            entry.setId(null); // Reset ID for new auto-increment ordering
+            queueRepo.save(entry);
+        }
+    }
+
+    /** Clears all QUEUE-status entries for a guild (does not touch CURRENT or PLAYED) */
+    private void clearGuildQueue(long guildId) {
+        List<QueueEntry> queue = queueRepo.query()
+                .where("guild_id", guildId)
+                .where("status", "QUEUE")
+                .list();
+
+        for (QueueEntry entry : queue) {
+            queueRepo.deleteById(entry.getId());
+        }
+    }
+
+    /**
+     * Recovers stale queue entries after plugin reload / force restart.
+     * Moves CURRENT and ERROR entries back to QUEUE so they can be replayed.
+     * Also cleans up PLAYED entries that are no longer useful.
+     */
+    private void recoverStaleQueue(long guildId) {
+        // Move stale CURRENT entries back to QUEUE (interrupted playback)
+        List<QueueEntry> stale = queueRepo.query()
+                .where("guild_id", guildId)
+                .where("status", "CURRENT")
+                .list();
+
+        for (QueueEntry entry : stale) {
+            entry.setStatus("QUEUE");
+            entry.setIsLooped(false);
+            queueRepo.save(entry);
         }
 
-        event.getHook().editOriginal("🔍 **Search Results:**")
-                .setComponents(ActionRow.of(menu.build()))
-                .queue();
+        // Move ERROR entries back to QUEUE (may succeed on retry)
+        List<QueueEntry> errors = queueRepo.query()
+                .where("guild_id", guildId)
+                .where("status", "ERROR")
+                .list();
+
+        for (QueueEntry entry : errors) {
+            entry.setStatus("QUEUE");
+            entry.setIsLooped(false);
+            queueRepo.save(entry);
+        }
+
+        // Clean up PLAYED entries (stale from previous session, not needed for queue)
+        List<QueueEntry> played = queueRepo.query()
+                .where("guild_id", guildId)
+                .where("status", "PLAYED")
+                .list();
+
+        for (QueueEntry entry : played) {
+            queueRepo.deleteById(entry.getId());
+        }
     }
 
-    // =========================================================================
-    // 4. Logic & Scheduler
-    // =========================================================================
-
-    private void sendController(SlashCommandInteractionEvent event, GuildMusicManager mgr, AudioTrack track) {
-        event.replyEmbeds(buildControllerEmbed(mgr, track).build())
-                .setEphemeral(true)
-                .addComponents(ActionRow.of(buildControllerButtons(mgr)))
-                .queue();
-    }
-
-    private EmbedBuilder buildControllerEmbed(GuildMusicManager mgr, AudioTrack track) {
-        String loopStatus = switch(mgr.scheduler.loopMode) {
-            case 0 -> "Off ➡";
-            case 1 -> "Queue 🔁";
-            case 2 -> "Track 🔂";
-            default -> "?";
-        };
-
-        String shuffleStatus = mgr.scheduler.shuffle ? "On 🔀" : "Off ➡";
-        long duration = track.getDuration();
-        long position = track.getPosition();
-
-        return new EmbedBuilder()
-                .setTitle("🎵 Now Playing")
-                .setDescription("**[" + track.getInfo().title + "](" + track.getInfo().uri + ")**")
-                .setThumbnail(track.getInfo().artworkUrl)
-                .addField("Uploader", track.getInfo().author, true)
-                .addField("Loop", loopStatus, true)
-                .addField("Shuffle", shuffleStatus, true)
-                .addField("Time", formatTime(position) + " / " + formatTime(duration), false)
-                .setColor(Color.CYAN);
-    }
-
-    private List<Button> buildControllerButtons(GuildMusicManager mgr) {
-        boolean isPaused = mgr.player.isPaused();
-        return List.of(
-                Button.primary("music:ctrl:pause", isPaused ? "▶ Resume" : "⏸ Pause"),
-                Button.secondary("music:ctrl:skip", "⏭ Skip"),
-                Button.secondary("music:ctrl:loop", "Loop: " + (mgr.scheduler.loopMode == 0 ? "Off" : (mgr.scheduler.loopMode == 1 ? "Queue" : "Track"))),
-                Button.secondary("music:ctrl:shuffle", "Shuffle: " + (mgr.scheduler.shuffle ? "On" : "Off"))
-        );
-    }
+    // ==================== VOICE EVENT ====================
 
     @EventHandler
     public void onVoiceUpdate(GuildVoiceUpdateEvent event) {
-        // Requirement 7: Graceful Cleanup
         if (event.getChannelLeft() != null) {
             Guild guild = event.getGuild();
             if (event.getMember().getUser().getIdLong() == guild.getSelfMember().getUser().getIdLong()) {
-                // Bot left/kicked
                 GuildMusicManager mgr = musicManagers.get(guild.getIdLong());
                 if (mgr != null) {
                     mgr.player.destroy();
-                    mgr.scheduler.clearQueue(); // Clear DB
+                    mgr.scheduler.clearQueue();
                     musicManagers.remove(guild.getIdLong());
                 }
             }
         }
     }
 
-    // =========================================================================
-    // Inner Classes: Scheduler & Context
-    // =========================================================================
+    // ==================== AUDIO MANAGER ====================
 
     private GuildMusicManager getGuildAudioPlayer(Guild guild) {
         return musicManagers.computeIfAbsent(guild.getIdLong(), k -> {
@@ -511,6 +920,51 @@ public class PudelMusicPlugin {
             guild.getAudioManager().setSendingHandler(new AudioPlayerSendHandler(mgr.player));
             return mgr;
         });
+    }
+
+    // ==================== UTILITIES ====================
+
+    private String getModalValue(ModalInteractionEvent event, String id) {
+        var v = event.getValue(id);
+        return v != null ? v.getAsString() : "";
+    }
+
+    private String encodeTrack(AudioTrack track) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        playerManager.encodeTrack(new MessageOutput(output), track);
+        return Base64.getEncoder().encodeToString(output.toByteArray());
+    }
+
+    private AudioTrack decodeTrack(String base64) throws IOException {
+        byte[] bytes = Base64.getDecoder().decode(base64);
+        ByteArrayInputStream input = new ByteArrayInputStream(bytes);
+        return playerManager.decodeTrack(new MessageInput(input)).decodedTrack;
+    }
+
+    private String formatTime(long millis) {
+        long totalSeconds = millis / 1000;
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+        if (hours > 0) return String.format("%d:%02d:%02d", hours, minutes, seconds);
+        return String.format("%02d:%02d", minutes, seconds);
+    }
+
+    // ==================== INNER CLASSES ====================
+
+    private enum View { MAIN, QUEUE, HISTORY, SEARCH }
+
+    private static class MusicSession {
+        final long userId;
+        final long guildId;
+        Message message;
+        View view = View.MAIN;
+        int page = 0;
+
+        MusicSession(long userId, long guildId) {
+            this.userId = userId;
+            this.guildId = guildId;
+        }
     }
 
     public class GuildMusicManager {
@@ -528,8 +982,7 @@ public class PudelMusicPlugin {
         private final AudioPlayer player;
         private final long guildId;
 
-        // 0 = Off, 1 = Loop Queue, 2 = Loop Track
-        public int loopMode = 0;
+        public int loopMode = 0; // 0=Off, 1=Queue, 2=Track
         public boolean shuffle = false;
 
         public TrackScheduler(AudioPlayer player, long guildId) {
@@ -557,7 +1010,7 @@ public class PudelMusicPlugin {
         }
 
         public void nextTrack() {
-            // 1. Process the track that just finished (move CURRENT -> PLAYED)
+            // 1. Move CURRENT -> PLAYED
             List<QueueEntry> active = queueRepo.query()
                     .where("guild_id", guildId)
                     .where("status", "CURRENT")
@@ -567,8 +1020,6 @@ public class PudelMusicPlugin {
                 e.setStatus("PLAYED");
                 queueRepo.save(e);
 
-                // --- HISTORY CHECK ---
-                // Only save to history if this wasn't a looped playback
                 if (e.getIsLooped() == null || !e.getIsLooped()) {
                     try {
                         AudioTrack infoTrack = decodeTrack(e.getTrackBlob());
@@ -585,13 +1036,12 @@ public class PudelMusicPlugin {
                 }
             }
 
-            // 2. Fetch Next Track
+            // 2. Fetch next
             QueueEntry nextEntry = null;
             QueryBuilder<QueueEntry> query = queueRepo.query()
                     .where("guild_id", guildId)
                     .where("status", "QUEUE");
 
-            // ... Shuffle logic (same as before) ...
             if (shuffle) {
                 List<QueueEntry> candidates = query.list();
                 if (!candidates.isEmpty()) {
@@ -602,7 +1052,7 @@ public class PudelMusicPlugin {
                 if (!list.isEmpty()) nextEntry = list.getFirst();
             }
 
-            // 3. Handle Loop Queue (Recycle PLAYED -> QUEUE)
+            // 3. Loop Queue: recycle PLAYED -> QUEUE
             if (nextEntry == null && loopMode == 1) {
                 List<QueueEntry> played = queueRepo.query()
                         .where("guild_id", guildId)
@@ -612,10 +1062,10 @@ public class PudelMusicPlugin {
                 if (!played.isEmpty()) {
                     for (QueueEntry e : played) {
                         e.setStatus("QUEUE");
-                        e.setIsLooped(true); // <--- Mark as Recycled (No History next time)
+                        e.setIsLooped(true);
                         queueRepo.save(e);
                     }
-                    nextTrack(); // Recursive call to pick up the recycled tracks
+                    nextTrack();
                     return;
                 }
             }
@@ -651,40 +1101,12 @@ public class PudelMusicPlugin {
             }
         }
 
-        public void cycleLoopMode() {
-            loopMode = (loopMode + 1) % 3;
-        }
-
-        public void toggleShuffle() {
-            shuffle = !shuffle;
-        }
-
-        public void clearQueue() {
-            queueRepo.deleteBy("guild_id", guildId);
-        }
+        public void cycleLoopMode() { loopMode = (loopMode + 1) % 3; }
+        public void toggleShuffle() { shuffle = !shuffle; }
+        public void clearQueue() { queueRepo.deleteBy("guild_id", guildId); }
     }
 
-    // =========================================================================
-    // Utilities & Entities
-    // =========================================================================
-
-    private String encodeTrack(AudioTrack track) throws IOException {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        playerManager.encodeTrack(new MessageOutput(output), track);
-        return Base64.getEncoder().encodeToString(output.toByteArray());
-    }
-
-    private AudioTrack decodeTrack(String base64) throws IOException {
-        byte[] bytes = Base64.getDecoder().decode(base64);
-        ByteArrayInputStream input = new ByteArrayInputStream(bytes);
-        return playerManager.decodeTrack(new MessageInput(input)).decodedTrack;
-    }
-
-    private String formatTime(long millis) {
-        long minutes = (millis / 1000) / 60;
-        long seconds = (millis / 1000) % 60;
-        return String.format("%02d:%02d", minutes, seconds);
-    }
+    // ==================== ENTITIES ====================
 
     @Entity
     public static class QueueEntry {

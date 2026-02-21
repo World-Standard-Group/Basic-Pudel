@@ -21,6 +21,7 @@ package group.worldstandard.pudel.plugin;
 import group.worldstandard.pudel.api.PluginContext;
 import group.worldstandard.pudel.api.annotation.*;
 import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.container.Container;
@@ -40,11 +41,9 @@ import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.entities.channel.ChannelType;
 import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
-import net.dv8tion.jda.api.entities.channel.unions.GuildChannelUnion;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
-import net.dv8tion.jda.api.events.interaction.component.EntitySelectInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.modals.Modal;
 import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
@@ -91,8 +90,6 @@ public class PudelMessagePlugin {
     private static final String BUTTON_PREFIX = "embed:";
     private static final String MODAL_PREFIX = "embed:modal:";
     private static final String MENU_PREFIX = "embed:menu:";
-    private static final String CHANNEL_SELECT_ID = "embed:channel_select";
-    private static final String FIELD_INLINE_SELECT_ID = "embed:menu:fieldinline";
 
     private static final Color DEFAULT_PREVIEW_COLOR = new Color(0x2B2D31);
 
@@ -192,37 +189,6 @@ public class PudelMessagePlugin {
         }
     }
 
-    @SelectMenuHandler(CHANNEL_SELECT_ID)
-    public void handleChannelSelect(EntitySelectInteractionEvent event) {
-        long userId = event.getUser().getIdLong();
-        EmbedSession session = activeSessions.get(userId);
-
-        if (session == null) {
-            event.reply("❌ Session expired.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        List<GuildChannelUnion> channels = event.getMentions().getChannels(GuildChannelUnion.class);
-        if (channels.isEmpty()) return;
-
-        GuildMessageChannel targetChannel = channels.getFirst().asGuildMessageChannel();
-
-        if (!targetChannel.canTalk()) {
-            event.reply("❌ I cannot send messages to " + targetChannel.getAsMention()).setEphemeral(true).queue();
-            return;
-        }
-
-        // Build and Post (final embed uses classic MessageEmbed)
-        MessageEmbed finalEmbed = buildFinalEmbed(session);
-        targetChannel.sendMessageEmbeds(finalEmbed).queue(
-                success -> {
-                    if (session.previewMessage != null) session.previewMessage.delete().queue();
-                    activeSessions.remove(userId);
-                    event.reply("✅ Embed posted in " + targetChannel.getAsMention()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-                },
-                error -> event.reply("❌ Failed to post: " + error.getMessage()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS))
-        );
-    }
 
     @ModalHandler(MODAL_PREFIX)
     public void handleModal(ModalInteractionEvent event) {
@@ -281,23 +247,12 @@ public class PudelMessagePlugin {
                     }
                     String name = getModalValue(event, "fieldname");
                     String value = getModalValue(event, "fieldvalue");
-                    session.pendingFieldName = name;
-                    session.pendingFieldValue = value;
-                    StringSelectMenu inlineMenu = StringSelectMenu.create(FIELD_INLINE_SELECT_ID)
-                            .setPlaceholder("Display this field inline?")
-                            .addOption("✅ Yes — Inline", "yes")
-                            .addOption("❌ No — Full Width", "no")
-                            .build();
-                    event.reply(
-                            new MessageCreateBuilder()
-                                    .useComponentsV2(true)
-                                    .setComponents(Container.of(
-                                            TextDisplay.of("Should this field be displayed **inline**?"),
-                                            ActionRow.of(inlineMenu)
-                                    ))
-                                    .build()
-                    ).setEphemeral(true).queue();
-                    return;
+                    // StringSelectMenu in modal returns STRING_SELECT type — use getAsStringList()
+                    var inlineMapping = event.getValue("fieldinline");
+                    boolean inline = inlineMapping != null
+                            && !inlineMapping.getAsStringList().isEmpty()
+                            && inlineMapping.getAsStringList().getFirst().equals("yes");
+                    session.fields.add(new EmbedField(name, value, inline));
                 }
                 case "customcolor" -> {
                     Color c = parseColor(getModalValue(event, "colorhex"));
@@ -306,6 +261,35 @@ public class PudelMessagePlugin {
                         event.reply("❌ Invalid hex!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
                         return;
                     }
+                }
+                case "post" -> {
+                    var channelMapping = event.getValue("postchannel");
+                    if (channelMapping == null || channelMapping.getAsStringList().isEmpty()) {
+                        event.reply("❌ Please select a channel!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+                        return;
+                    }
+                    String channelId = channelMapping.getAsStringList().getFirst();
+                    GuildMessageChannel targetChannel = event.getGuild().getChannelById(GuildMessageChannel.class, channelId);
+
+                    if (targetChannel == null) {
+                        event.reply("❌ Channel not found or invalid.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+                        return;
+                    }
+                    if (!targetChannel.canTalk()) {
+                        event.reply("❌ I cannot send messages to " + targetChannel.getAsMention()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+                        return;
+                    }
+
+                    MessageEmbed finalEmbed = buildFinalEmbed(session);
+                    targetChannel.sendMessageEmbeds(finalEmbed).queue(
+                            success -> {
+                                if (session.previewMessage != null) session.previewMessage.delete().queue();
+                                activeSessions.remove(userId);
+                                event.reply("✅ Embed posted in " + targetChannel.getAsMention()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+                            },
+                            error -> event.reply("❌ Failed to post: " + error.getMessage()).setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS))
+                    );
+                    return; // Don't call updateSessionPreviewFromModal — session is done
                 }
             }
             updateSessionPreviewFromModal(event, session);
@@ -320,24 +304,6 @@ public class PudelMessagePlugin {
         EmbedSession session = activeSessions.get(userId);
         if (session == null) return;
 
-        String menuId = event.getComponentId();
-
-        // Handle field inline selection
-        if (menuId.equals(FIELD_INLINE_SELECT_ID)) {
-            if (session.pendingFieldName == null || session.pendingFieldValue == null) {
-                event.reply("❌ No pending field data. Please try adding a field again.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-                return;
-            }
-            boolean inline = event.getValues().getFirst().equals("yes");
-            session.fields.add(new EmbedField(session.pendingFieldName, session.pendingFieldValue, inline));
-            session.pendingFieldName = null;
-            session.pendingFieldValue = null;
-            if (session.previewMessage != null) {
-                session.previewMessage.editMessage(editV2Message(session).build()).queue();
-            }
-            event.reply("✅ Field added!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
 
         String selected = event.getValues().getFirst();
         if (selected.equals("custom")) {
@@ -675,6 +641,11 @@ public class PudelMessagePlugin {
     }
 
     private void showFieldModal(ButtonInteractionEvent e) {
+        StringSelectMenu inlineSelect = StringSelectMenu.create("fieldinline")
+                .setPlaceholder("Inline?")
+                .addOption("✅ Yes — Inline", "yes")
+                .addOption("❌ No — Full Width", "no")
+                .build();
         e.replyModal(Modal.create(MODAL_PREFIX + "field", "Add Field")
                 .addComponents(
                         Label.of("Field Title", TextInput.create("fieldname", TextInputStyle.SHORT)
@@ -686,7 +657,8 @@ public class PudelMessagePlugin {
                                 .setPlaceholder("Value")
                                 .setMaxLength(1024)
                                 .build()
-                        )
+                        ),
+                        Label.of("Display Inline?", inlineSelect)
                 ).build()
         ).queue();
     }
@@ -710,21 +682,16 @@ public class PudelMessagePlugin {
     }
 
     private void showChannelSelect(ButtonInteractionEvent event) {
-        EntitySelectMenu channelMenu = EntitySelectMenu.create(CHANNEL_SELECT_ID, EntitySelectMenu.SelectTarget.CHANNEL)
-                .setPlaceholder("Select a channel to post this embed")
+        EntitySelectMenu channelMenu = EntitySelectMenu.create("postchannel", EntitySelectMenu.SelectTarget.CHANNEL)
                 .setChannelTypes(ChannelType.TEXT, ChannelType.NEWS)
+                .setPlaceholder("Select a channel to post this embed")
                 .setMaxValues(1)
                 .build();
-
-        event.reply(
-                new MessageCreateBuilder()
-                        .useComponentsV2(true)
-                        .setComponents(Container.of(
-                                TextDisplay.of("### 📨 Select Channel\nChoose where to post this embed:"),
-                                ActionRow.of(channelMenu)
-                        ))
-                        .build()
-        ).setEphemeral(true).queue();
+        event.replyModal(Modal.create(MODAL_PREFIX + "post", "Post Embed")
+                .addComponents(
+                        Label.of("📨 Select Channel", channelMenu)
+                ).build()
+        ).queue();
     }
 
     // ==================== FINAL EMBED BUILDER ====================
@@ -794,8 +761,6 @@ public class PudelMessagePlugin {
         Color color;
         OffsetDateTime timestamp;
         List<EmbedField> fields = new ArrayList<>();
-        String pendingFieldName;
-        String pendingFieldValue;
         EmbedSession(long u) { this.userId = u; }
     }
 
