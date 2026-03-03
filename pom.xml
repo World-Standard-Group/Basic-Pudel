@@ -30,11 +30,19 @@
         <developer>
             <id>zazalng</id>
             <name>Napapon Kamanee</name>
-            <email>kenghide@hotmail.com</email>
+            <email>zazalng.founder@worldstandard.group</email>
+            <roles>
+                <role>Founder</role>
+            </roles>
             <organization>World Standard Group</organization>
             <organizationUrl>https://github.com/World-Standard-Group</organizationUrl>
         </developer>
     </developers>
+
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/World-Standard-Group/Basic-Pudel/issues</url>
+    </issueManagement>
 
     <scm>
         <connection>scm:git:https://github.com/World-Standard-Group/Basic-Pudel.git</connection>

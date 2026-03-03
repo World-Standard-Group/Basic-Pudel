@@ -88,11 +88,11 @@ import java.util.concurrent.TimeUnit;
  * </ul>
  *
  * @author Zazalng
- * @version 3.0.0
+ * @since 3.0.0
  */
 @Plugin(
         name = "Pudel's Music",
-        version = "3.0.0",
+        version = "3.0.1",
         author = "Zazalng",
         description = "Unified Music Box with Components v2"
 )
@@ -182,7 +182,7 @@ public class PudelMusicPlugin {
                 .setAllowSearch(true)
                 .setAllowDirectPlaylistIds(true)
                 .setAllowDirectVideoIds(true)
-                .setRemoteCipher("https://cipher.kikkia.dev/", "", "Pudel v2.1.1");
+                .setRemoteCipher("https://cipher.kikkia.dev/", "", context.getPudel().getUserAgent());
 
         YoutubeAudioSourceManager ytSourceManager = new YoutubeAudioSourceManager(
                 ytk,

@@ -75,11 +75,11 @@ import java.util.regex.Pattern;
  * - Final embed posted as classic MessageEmbed
  *
  * @author Zazalng
- * @version 3.0.0
+ * @since 3.0.0
  */
 @Plugin(
         name = "Pudel's Embed Builder",
-        version = "3.0.0",
+        version = "3.0.1",
         author = "Zazalng",
         description = "Interactive embed builder with Components v2 live preview"
 )
