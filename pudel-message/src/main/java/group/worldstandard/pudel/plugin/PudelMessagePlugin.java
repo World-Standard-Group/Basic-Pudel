@@ -101,7 +101,7 @@ public class PudelMessagePlugin {
     @OnEnable
     public void onEnable(PluginContext ctx) {
         this.context = ctx;
-        ctx.log("info", "Pudel's Embed Builder initialized (v3.0.1 — Components v2)");
+        ctx.log("info", "%s initialized (v%s — Components v2)".formatted(ctx.getInfo().getName(), ctx.getInfo().getVersion()));
     }
 
     @OnShutdown
@@ -119,7 +119,8 @@ public class PudelMessagePlugin {
 
     @SlashCommand(
             name = "embed",
-            description = "Open the interactive embed builder"
+            description = "Open the interactive embed builder",
+            nsfw = false
     )
     public void handleEmbedCommand(SlashCommandInteractionEvent event) {
         if (!event.isFromGuild()) {

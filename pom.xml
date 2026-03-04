@@ -6,7 +6,7 @@
 
     <groupId>group.worldstandard</groupId>
     <artifactId>default-pudel</artifactId>
-    <version>1.1.1</version>
+    <version>2.2.0</version>
     <packaging>pom</packaging>
     <name>Basic Pudel</name>
     <description>Basic Command for Pudel &amp; legacy Eli</description>
@@ -55,7 +55,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <jda.version>6.3.1</jda.version>
-        <pudel.version>2.1.1</pudel.version>
+        <pudel.version>2.2.0</pudel.version>
         <log.version>2.0.17</log.version>
     </properties>
 

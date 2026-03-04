@@ -26,6 +26,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.interactions.commands.OptionType;
 
 import java.awt.Color;
 import java.util.List;
@@ -95,11 +96,12 @@ public class PudelRoleColor {
     @SlashCommand(
             name = "rolecolor",
             description = "Set your name color or reset it.",
+            nsfw = false,
             options = {
                     @CommandOption(
                             name = "input",
                             description = "Hex color code (e.g. FF0000) or 'reset'",
-                            type = "STRING",
+                            type = OptionType.STRING,
                             required = true
                     )
             }

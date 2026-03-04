@@ -129,7 +129,7 @@ public class PudelMusicPlugin {
         this.db = ctx.getDatabaseManager();
         initializeDatabase();
         initializeLavaPlayer();
-        ctx.log("info", "Pudel's Music Plugin initialized (v3.0.1 - Components v2)");
+        ctx.log("info", "%s initialized (v%s — Components v2)".formatted(ctx.getInfo().getName(), ctx.getInfo().getVersion()));
     }
 
     @OnShutdown
@@ -216,7 +216,10 @@ public class PudelMusicPlugin {
 
     // ==================== SLASH COMMAND ====================
 
-    @SlashCommand(name = "music", description = "Open the Music Box")
+    @SlashCommand(name = "music",
+            description = "Open the Music Box",
+            nsfw = false
+    )
     public void onMusic(SlashCommandInteractionEvent event) {
         Guild guild = event.getGuild();
         Member member = event.getMember();

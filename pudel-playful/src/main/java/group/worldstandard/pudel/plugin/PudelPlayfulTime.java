@@ -45,6 +45,9 @@ import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
+import net.dv8tion.jda.api.interactions.IntegrationType;
+import net.dv8tion.jda.api.interactions.InteractionContextType;
+import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.modals.Modal;
 import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
 import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
@@ -150,19 +153,22 @@ public class PudelPlayfulTime {
     @SlashCommand(
             name = "prank",
             description = "Open prank control panel or fire a prank",
+            nsfw = false,
             options = {
                     @CommandOption(
                             name = "name",
                             description = "Container name to fire a random prank from",
-                            type = "STRING"
+                            type = OptionType.STRING
                     ),
                     @CommandOption(
                             name = "target",
                             description = "User to prank",
-                            type = "USER"
+                            type = OptionType.USER
                     )
             },
-            global = true
+            global = true,
+            integrationTo = {IntegrationType.USER_INSTALL, IntegrationType.GUILD_INSTALL},
+            integrationContext = {InteractionContextType.PRIVATE_CHANNEL, InteractionContextType.GUILD}
     )
     public void handlePrankCommand(SlashCommandInteractionEvent event) {
         var nameOpt = event.getOption("name");
@@ -221,7 +227,7 @@ public class PudelPlayfulTime {
 
         // Build the prank message with Components v2
         Container prankCard = Container.of(
-                TextDisplay.of(message),
+                TextDisplay.of("*%s*".formatted(message)),
                 MediaGallery.of(MediaGalleryItem.fromUrl(prank.getUrl())),
                 Separator.create(false, Separator.Spacing.SMALL),
                 TextDisplay.of("-# 📦 " + container.getName() + " • Used " + container.getUsage() + " times")
