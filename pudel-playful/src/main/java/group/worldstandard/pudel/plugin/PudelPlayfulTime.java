@@ -24,6 +24,8 @@ import group.worldstandard.pudel.api.database.ColumnType;
 import group.worldstandard.pudel.api.database.PluginDatabaseManager;
 import group.worldstandard.pudel.api.database.PluginRepository;
 import group.worldstandard.pudel.api.database.TableSchema;
+import group.worldstandard.pudel.plugin.dto.ContainerDto;
+import group.worldstandard.pudel.plugin.dto.PrankDto;
 import group.worldstandard.pudel.plugin.entity.PrankCollection;
 import group.worldstandard.pudel.plugin.entity.PrankContainer;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
@@ -49,10 +51,13 @@ import net.dv8tion.jda.api.interactions.IntegrationType;
 import net.dv8tion.jda.api.interactions.InteractionContextType;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.modals.Modal;
+import net.dv8tion.jda.api.utils.FileUpload;
 import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
 import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
+import tools.jackson.databind.ObjectMapper;
 
 import java.awt.Color;
+import java.io.InputStream;
 import java.net.URI;
 import java.util.*;
 import java.util.concurrent.*;
@@ -75,7 +80,7 @@ import java.util.concurrent.*;
  */
 @Plugin(
         name = "Pudel's Playful Time",
-        version = "1.0.0",
+        version = "1.1.0",
         author = "Zazalng",
         description = "Harmless prank image/gif collections with custom messages"
 )
@@ -89,8 +94,11 @@ public class PudelPlayfulTime {
     private static final Color ACCENT_MAIN = new Color(0xFF6B6B);
     private static final Color ACCENT_VIEW = new Color(0x4ECDC4);
     private static final Color ACCENT_PRANK = new Color(0xFFE66D);
+    private static final Color ACCENT_IO = new Color(0xA78BFA);
 
     // ==================== STATE ====================
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     private PluginContext ctx;
     private PluginDatabaseManager db;
     private PluginRepository<PrankContainer> containerRepo;
@@ -289,6 +297,10 @@ public class PudelPlayfulTime {
                 Button.primary(BTN + "view-container", "👁️ View Container"),
                 Button.danger(BTN + "delete-container", "🗑️ Delete Container")
         ));
+        children.add(ActionRow.of(
+                Button.secondary(BTN + "export-container", "📤 Export JSON"),
+                Button.secondary(BTN + "import-container", "📥 Import JSON")
+        ));
 
         return Container.of(children).withAccentColor(ACCENT_MAIN);
     }
@@ -363,6 +375,8 @@ public class PudelPlayfulTime {
             case "add-container" -> showAddContainerModal(event);
             case "view-container" -> showContainerSelectMenu(event, userId, "view");
             case "delete-container" -> showContainerSelectMenu(event, userId, "delete");
+            case "export-container" -> handleExportAll(event, userId);
+            case "import-container" -> showImportModal(event);
 
             // View container buttons
             case "add-prank" -> showAddPrankOptions(event, userId);
@@ -399,6 +413,8 @@ public class PudelPlayfulTime {
                 handleAddPrankUploadModal(event, userId);
             } else if (modalId.equals("add-prank-url")) {
                 handleAddPrankUrlModal(event, userId);
+            } else if (modalId.equals("import-json")) {
+                handleImportModal(event, userId);
             } else if (modalId.startsWith("edit-prank:")) {
                 String prankId = modalId.substring("edit-prank:".length());
                 handleEditPrankModal(event, userId, prankId);
@@ -454,12 +470,13 @@ public class PudelPlayfulTime {
             return;
         }
 
-        // Check uniqueness across all users
+        // Check uniqueness per user
         List<PrankContainer> existing = containerRepo.query()
+                .where("user_id", userId)
                 .where("name", name)
                 .list();
         if (!existing.isEmpty()) {
-            event.reply("❌ A container named **" + name + "** already exists!")
+            event.reply("❌ You already have a container named **" + name + "**!")
                     .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
@@ -890,6 +907,257 @@ public class PudelPlayfulTime {
         } else {
             event.editMessage(editMainPanel(userId).build()).queue();
         }
+    }
+
+    // ==================== EXPORT / IMPORT JSON ====================
+
+    /**
+     * Exports all of the user's containers and their pranks as a single JSON file.
+     * <p>
+     * JSON format (uses {@link ContainerDto} with {@code @JsonValue}):
+     * <pre>
+     * {
+     *   "bonk": [ { "id": "...", "url": "...", "placeholder": "..." } ],
+     *   "slap": [ { "id": "...", "url": "...", "placeholder": "..." } ]
+     * }
+     * </pre>
+     */
+    private void handleExportAll(ButtonInteractionEvent event, String userId) {
+        List<PrankContainer> myContainers = containerRepo.query()
+                .where("user_id", userId)
+                .list();
+
+        if (myContainers.isEmpty()) {
+            event.reply("❌ You don't have any containers to export!")
+                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            return;
+        }
+
+        // Build map: container name → PrankDto[]
+        Map<String, PrankDto[]> map = new LinkedHashMap<>();
+        int totalPranks = 0;
+
+        for (PrankContainer c : myContainers) {
+            List<PrankCollection> pranks = collectionRepo.query()
+                    .where("container_id", c.getContainerId())
+                    .list();
+
+            PrankDto[] prankDtos = pranks.stream()
+                    .map(p -> new PrankDto(p.getPrankId(), p.getUrl(), p.getPlaceholder()))
+                    .toArray(PrankDto[]::new);
+
+            map.put(c.getName(), prankDtos);
+            totalPranks += prankDtos.length;
+        }
+
+        ContainerDto dto = new ContainerDto(map);
+
+        try {
+            byte[] jsonBytes = objectMapper.writerWithDefaultPrettyPrinter()
+                    .writeValueAsBytes(dto);
+
+            // Send the JSON file as a reply
+            event.reply(
+                    new MessageCreateBuilder()
+                            .useComponentsV2(true)
+                            .setComponents(Container.of(
+                                    TextDisplay.of("### 📤 Exported All Containers"),
+                                    Separator.create(false, Separator.Spacing.SMALL),
+                                    TextDisplay.of("-# " + myContainers.size() + " container(s), "
+                                            + totalPranks + " prank(s) • Save this file to import later")
+                            ).withAccentColor(ACCENT_IO))
+                            .setFiles(FileUpload.fromData(jsonBytes, "prank-export.json"))
+                            .build()
+            ).setEphemeral(true).queue();
+        } catch (Exception e) {
+            ctx.log("error", "Export error: " + e.getMessage());
+            event.reply("❌ Failed to export: " + e.getMessage())
+                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+        }
+    }
+
+    /**
+     * Shows a modal with an {@link AttachmentUpload} for importing a JSON file.
+     */
+    private void showImportModal(ButtonInteractionEvent event) {
+        AttachmentUpload fileUpload = AttachmentUpload.create("json-file")
+                .setRequiredRange(1, 1)
+                .setRequired(true)
+                .build();
+
+        event.replyModal(Modal.create(MODAL + "import-json", "Import Prank Container")
+                .addComponents(
+                        Label.of("JSON File (exported from /prank)", fileUpload)
+                )
+                .build()
+        ).queue();
+    }
+
+    /**
+     * Handles the import modal — deserializes the uploaded JSON into {@link ContainerDto}
+     * (a map of container names → {@link PrankDto} arrays) and creates or merges each container.
+     * <p>
+     * Import logic per container entry:
+     * <ul>
+     *   <li>If a container with the same name exists for this user → merge new pranks</li>
+     *   <li>If no container with that name exists → create a new container with all its pranks</li>
+     *   <li>Container names are never changed — a different name always results in a new container</li>
+     * </ul>
+     */
+    private void handleImportModal(ModalInteractionEvent event, String userId) {
+        var uploadMapping = event.getValue("json-file");
+        if (uploadMapping == null) {
+            event.reply("❌ No file was uploaded!")
+                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            return;
+        }
+
+        List<Message.Attachment> attachments = uploadMapping.getAsAttachmentList();
+        if (attachments.isEmpty()) {
+            event.reply("❌ No file was uploaded!")
+                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            return;
+        }
+
+        Message.Attachment attachment = attachments.getFirst();
+
+        // Validate file type
+        if (!attachment.getFileName().toLowerCase().endsWith(".json")) {
+            event.reply("❌ Please upload a `.json` file!")
+                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            return;
+        }
+
+        // Defer reply since download + parsing takes time
+        event.deferReply(true).queue(hook -> attachment.getProxy().download().thenAccept(inputStream -> {
+            try (InputStream is = inputStream) {
+
+                ContainerDto dto = objectMapper.readValue(is, ContainerDto.class);
+
+                if (dto.containers() == null || dto.containers().isEmpty()) {
+                    hook.editOriginal("❌ JSON file is empty or has invalid format!")
+                            .queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
+                    return;
+                }
+
+                int containersCreated = 0;
+                int containersMerged = 0;
+                int totalImported = 0;
+                int totalUpdated = 0;
+                int totalSkipped = 0;
+
+                for (Map.Entry<String, PrankDto[]> entry : dto.containers().entrySet()) {
+                    String containerName = entry.getKey().trim().toLowerCase();
+                    PrankDto[] prankDtos = entry.getValue();
+
+                    if (containerName.isEmpty() || prankDtos == null) {
+                        totalSkipped++;
+                        continue;
+                    }
+
+                    // Check if user already has a container with this name
+                    List<PrankContainer> existing = containerRepo.query()
+                            .where("user_id", userId)
+                            .where("name", containerName)
+                            .list();
+
+                    PrankContainer container;
+
+                    if (!existing.isEmpty()) {
+                        // Merge into existing container
+                        container = existing.getFirst();
+                        containersMerged++;
+                    } else {
+                        // Create new container for this user
+                        container = new PrankContainer(userId, UUID.randomUUID().toString(), containerName);
+                        containerRepo.save(container);
+                        containersCreated++;
+                    }
+
+                    // Map existing pranks by prank ID for update/add logic
+                    Map<String, PrankCollection> existingById = new HashMap<>();
+                    for (PrankCollection p : collectionRepo.query()
+                            .where("container_id", container.getContainerId())
+                            .list()) {
+                        existingById.put(p.getPrankId(), p);
+                    }
+
+                    for (PrankDto prankDto : prankDtos) {
+                        String url = prankDto.url() != null ? prankDto.url().trim() : "";
+                        String placeholder = prankDto.placeholder() != null ? prankDto.placeholder().trim() : "";
+
+                        if (url.isEmpty() || placeholder.isEmpty() || !isValidUrl(url)) {
+                            totalSkipped++;
+                            continue;
+                        }
+
+                        // If ID is present and matches an existing prank → update it
+                        if (prankDto.id() != null && existingById.containsKey(prankDto.id())) {
+                            PrankCollection existing2 = existingById.get(prankDto.id());
+                            boolean changed = false;
+                            if (!existing2.getUrl().equals(url)) {
+                                existing2.setUrl(url);
+                                changed = true;
+                            }
+                            if (!existing2.getPlaceholder().equals(placeholder)) {
+                                existing2.setPlaceholder(placeholder);
+                                changed = true;
+                            }
+                            if (changed) {
+                                collectionRepo.save(existing2);
+                                totalUpdated++;
+                            }
+                        } else {
+                            // No ID or ID not found → add as new prank
+                            PrankCollection prank = new PrankCollection(
+                                    UUID.randomUUID().toString(),
+                                    container.getContainerId(),
+                                    url,
+                                    placeholder
+                            );
+                            collectionRepo.save(prank);
+                            totalImported++;
+                        }
+                    }
+                }
+
+                // Update the main panel
+                Message ctrlMsg = controlMessages.get(userId);
+                if (ctrlMsg != null) {
+                    ctrlMsg.editMessage(editMainPanel(userId).build()).queue();
+                }
+
+                // Build result message
+                StringBuilder result = new StringBuilder();
+                if (containersCreated > 0) {
+                    result.append("✅ Created **%d** container(s)".formatted(containersCreated));
+                }
+                if (containersMerged > 0) {
+                    if (!result.isEmpty()) result.append(", ");
+                    result.append("🔄 Merged into **%d** existing".formatted(containersMerged));
+                }
+                if (totalImported > 0 || totalUpdated > 0 || (containersCreated == 0 && containersMerged == 0)) {
+                    if (!result.isEmpty()) result.append("\n");
+                    result.append("📥 **%d** added, ✏️ **%d** updated".formatted(totalImported, totalUpdated));
+                }
+                if (totalSkipped > 0) {
+                    result.append(" (%d skipped)".formatted(totalSkipped));
+                }
+
+                hook.editOriginal(result.toString())
+                        .queue(m -> m.delete().queueAfter(10, TimeUnit.SECONDS));
+
+            } catch (Exception e) {
+                ctx.log("error", "Import error: " + e.getMessage());
+                hook.editOriginal("❌ Failed to parse JSON: " + e.getMessage())
+                        .queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
+            }
+        }).exceptionally(e -> {
+            ctx.log("error", "Import download error: " + e.getMessage());
+            hook.editOriginal("❌ Failed to download file: " + e.getMessage())
+                    .queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
+            return null;
+        }));
     }
 
     // ==================== UTILITY METHODS ====================

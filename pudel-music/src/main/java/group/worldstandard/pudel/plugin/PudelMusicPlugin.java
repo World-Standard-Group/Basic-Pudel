@@ -61,6 +61,7 @@ import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
+import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.modals.Modal;
 import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
 import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
@@ -217,8 +218,15 @@ public class PudelMusicPlugin {
     // ==================== SLASH COMMAND ====================
 
     @SlashCommand(name = "music",
-            description = "Open the Music Box",
-            nsfw = false
+            description = "Open the Music Box or directly search & queue a song",
+            nsfw = false,
+            options = {
+                    @CommandOption(
+                            name = "search",
+                            description = "Search & queue a song directly (URL or search query, auto source)",
+                            type = OptionType.STRING
+                    )
+            }
     )
     public void onMusic(SlashCommandInteractionEvent event) {
         Guild guild = event.getGuild();
@@ -268,12 +276,133 @@ public class PudelMusicPlugin {
             }
         }
 
+        // Check if the user provided a direct search query
+        var searchOption = event.getOption("search");
+        if (searchOption != null) {
+            String query = searchOption.getAsString().trim();
+            if (!query.isEmpty()) {
+                handleDirectSearch(event, session, mgr, guild, member, query);
+                return;
+            }
+        }
+
         event.reply(
                 new MessageCreateBuilder()
                         .useComponentsV2(true)
                         .setComponents(buildMainView(mgr, session))
                         .build()
         ).setEphemeral(true).queue(hook -> hook.retrieveOriginal().queue(msg -> session.message = msg));
+    }
+
+    // ==================== DIRECT SEARCH (slash option) ====================
+
+    /**
+     * Handles {@code /music search:<query>} — performs a direct search using auto source,
+     * bypassing the modal. Behaves like the modal queue flow but faster for power users.
+     */
+    private void handleDirectSearch(SlashCommandInteractionEvent event, MusicSession session,
+                                    GuildMusicManager mgr, Guild guild, Member member, String query) {
+        // Auto-join voice if not connected
+        if (!guild.getAudioManager().isConnected() && member != null
+                && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
+            guild.getAudioManager().openAudioConnection(member.getVoiceState().getChannel());
+        }
+
+        // Build search prefix (auto source: ytsearch for non-URLs)
+        String searchPrefix = query.startsWith("http") ? "" : "ytsearch:";
+
+        long userId = session.userId;
+
+        // Reply with a loading message; this becomes the main Music Box message
+        event.reply(
+                new MessageCreateBuilder()
+                        .useComponentsV2(true)
+                        .setComponents(Container.of(
+                                TextDisplay.of("# 🔍 Searching..."),
+                                Separator.create(false, Separator.Spacing.SMALL),
+                                TextDisplay.of("_Searching for_ `" + query + "` _please wait..._")
+                        ).withAccentColor(ACCENT_PLAYING))
+                        .build()
+        ).setEphemeral(true).queue(hook -> {
+            hook.retrieveOriginal().queue(msg -> session.message = msg);
+
+            playerManager.loadItemOrdered(mgr, searchPrefix + query, new AudioLoadResultHandler() {
+                @Override
+                public void trackLoaded(AudioTrack track) {
+                    mgr.scheduler.queue(track, userId);
+                    updateSessionMessage(session, mgr);
+                }
+
+                @Override
+                public void playlistLoaded(AudioPlaylist playlist) {
+                    if (playlist.isSearchResult()) {
+                        // Show search results as select menu inside the main Music Box
+                        List<AudioTrack> tracks = playlist.getTracks()
+                                .subList(0, Math.min(5, playlist.getTracks().size()));
+                        String searchId = UUID.randomUUID().toString();
+                        searchCache.put(searchId, tracks);
+
+                        session.view = View.SEARCH;
+
+                        // Send search results as a temp popup (keep main box intact for later)
+                        hook.sendMessage(
+                                new MessageCreateBuilder()
+                                        .useComponentsV2(true)
+                                        .setComponents(buildSearchView(session, tracks, searchId))
+                                        .build()
+                        ).setEphemeral(true).queue(tempMsg -> {
+                            session.tempMessage = tempMsg;
+                            session.tempHook = hook;
+                        });
+
+                        // Also update main message to Music Box
+                        updateSessionMessage(session, mgr);
+                    } else {
+                        // Full playlist — queue all tracks
+                        for (AudioTrack track : playlist.getTracks()) {
+                            mgr.scheduler.queue(track, userId);
+                        }
+                        updateSessionMessage(session, mgr);
+                    }
+                }
+
+                @Override
+                public void noMatches() {
+                    if (session.message != null) {
+                        session.message.editMessage(
+                                new MessageEditBuilder()
+                                        .useComponentsV2(true)
+                                        .setComponents(Container.of(
+                                                TextDisplay.of("# ❌ No Results"),
+                                                Separator.create(false, Separator.Spacing.SMALL),
+                                                TextDisplay.of("_No matches found for_ `" + query + "`"),
+                                                Separator.create(true, Separator.Spacing.SMALL),
+                                                ActionRow.of(Button.primary(BTN + "back", "🔙 Back to Player"))
+                                        ).withAccentColor(ACCENT_IDLE))
+                                        .build()
+                        ).queue();
+                    }
+                }
+
+                @Override
+                public void loadFailed(FriendlyException exception) {
+                    if (session.message != null) {
+                        session.message.editMessage(
+                                new MessageEditBuilder()
+                                        .useComponentsV2(true)
+                                        .setComponents(Container.of(
+                                                TextDisplay.of("# ❌ Load Failed"),
+                                                Separator.create(false, Separator.Spacing.SMALL),
+                                                TextDisplay.of("_" + exception.getMessage() + "_"),
+                                                Separator.create(true, Separator.Spacing.SMALL),
+                                                ActionRow.of(Button.primary(BTN + "back", "🔙 Back to Player"))
+                                        ).withAccentColor(ACCENT_IDLE))
+                                        .build()
+                        ).queue();
+                    }
+                }
+            });
+        });
     }
 
     // ==================== BUTTON HANDLER ====================

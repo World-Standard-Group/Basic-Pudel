@@ -17,6 +17,7 @@
         <module>pudel-message</module>
         <module>pudel-rolecolor</module>
         <module>pudel-playful</module>
+        <module>pudel-componentv2</module>
     </modules>
 
     <licenses>
