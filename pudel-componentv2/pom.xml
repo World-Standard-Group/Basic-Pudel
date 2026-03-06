@@ -9,60 +9,12 @@
         <version>2.2.0</version>
     </parent>
 
-    <artifactId>pudel-playful</artifactId>
-    <name>Pudel's Playful Time</name>
-
-    <licenses>
-        <license>
-            <name>MIT License</name>
-            <url>https://raw.githubusercontent.com/World-Standard-Group/Basic-Pudel/refs/heads/main/LICENSE</url>
-        </license>
-    </licenses>
-
-    <developers>
-        <developer>
-            <id>zazalng</id>
-            <name>Napapon Kamanee</name>
-            <email>zazalng.founder@worldstandard.group</email>
-            <roles>
-                <role>Founder</role>
-            </roles>
-            <organization>World Standard Group</organization>
-            <organizationUrl>https://github.com/World-Standard-Group</organizationUrl>
-        </developer>
-    </developers>
-
-    <issueManagement>
-        <system>GitHub</system>
-        <url>https://github.com/World-Standard-Group/Basic-Pudel/issues</url>
-    </issueManagement>
-
-    <scm>
-        <connection>scm:git:https://github.com/World-Standard-Group/Basic-Pudel.git</connection>
-        <developerConnection>scm:git:git@github.com:World-Standard-Group/Basic-Pudel.git</developerConnection>
-        <url>https://github.com/World-Standard-Group/Basic-Pudel.git</url>
-    </scm>
+    <artifactId>pudel-componentv2</artifactId>
 
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <jackson.version>3.1.0</jackson.version>
     </properties>
-
-    <dependencies>
-        <dependency>
-            <groupId>tools.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>tools.jackson.core</groupId>
-            <artifactId>jackson-core</artifactId>
-            <version>${jackson.version}</version>
-            <scope>provided</scope>
-        </dependency>
-    </dependencies>
 
     <build>
         <plugins>
