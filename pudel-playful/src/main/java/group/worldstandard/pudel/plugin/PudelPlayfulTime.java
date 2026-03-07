@@ -33,6 +33,7 @@ import net.dv8tion.jda.api.components.attachmentupload.AttachmentUpload;
 import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.container.Container;
 import net.dv8tion.jda.api.components.container.ContainerChildComponent;
+import net.dv8tion.jda.api.components.filedisplay.FileDisplay;
 import net.dv8tion.jda.api.components.label.Label;
 import net.dv8tion.jda.api.components.mediagallery.MediaGallery;
 import net.dv8tion.jda.api.components.mediagallery.MediaGalleryItem;
@@ -59,6 +60,8 @@ import tools.jackson.databind.ObjectMapper;
 import java.awt.Color;
 import java.io.InputStream;
 import java.net.URI;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -963,10 +966,10 @@ public class PudelPlayfulTime {
                             .setComponents(Container.of(
                                     TextDisplay.of("### 📤 Exported All Containers"),
                                     Separator.create(false, Separator.Spacing.SMALL),
+                                    FileDisplay.fromFile(FileUpload.fromData(jsonBytes, "prank-%s-export.json".formatted(LocalDate.now().format(DateTimeFormatter.ISO_DATE)))),
                                     TextDisplay.of("-# " + myContainers.size() + " container(s), "
                                             + totalPranks + " prank(s) • Save this file to import later")
                             ).withAccentColor(ACCENT_IO))
-                            .setFiles(FileUpload.fromData(jsonBytes, "prank-export.json"))
                             .build()
             ).setEphemeral(true).queue();
         } catch (Exception e) {
