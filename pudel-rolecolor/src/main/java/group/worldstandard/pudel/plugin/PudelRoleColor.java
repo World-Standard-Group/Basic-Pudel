@@ -26,6 +26,8 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.interactions.IntegrationType;
+import net.dv8tion.jda.api.interactions.InteractionContextType;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 
 import java.awt.Color;
@@ -104,7 +106,10 @@ public class PudelRoleColor {
                             type = OptionType.STRING,
                             required = true
                     )
-            }
+            },
+            global = false,
+            integrationTo = {IntegrationType.GUILD_INSTALL},
+            integrationContext = {InteractionContextType.GUILD}
     )
     public void onRoleColor(SlashCommandInteractionEvent event) {
         // Defer reply since Discord API calls might take time

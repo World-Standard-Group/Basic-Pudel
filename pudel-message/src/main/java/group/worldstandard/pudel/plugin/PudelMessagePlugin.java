@@ -44,6 +44,8 @@ import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
+import net.dv8tion.jda.api.interactions.IntegrationType;
+import net.dv8tion.jda.api.interactions.InteractionContextType;
 import net.dv8tion.jda.api.modals.Modal;
 import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
 import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
@@ -105,7 +107,7 @@ public class PudelMessagePlugin {
     }
 
     @OnShutdown
-    public boolean onShutdown() {
+    public boolean onShutdown(PluginContext ctx) {
         for (EmbedSession session : activeSessions.values()) {
             if (session.previewMessage != null) {
                 session.previewMessage.delete().queue(null, _ -> {});
@@ -120,7 +122,10 @@ public class PudelMessagePlugin {
     @SlashCommand(
             name = "embed",
             description = "Open the interactive embed builder",
-            nsfw = false
+            nsfw = false,
+            global = false,
+            integrationTo = {IntegrationType.GUILD_INSTALL},
+            integrationContext = {InteractionContextType.GUILD}
     )
     public void handleEmbedCommand(SlashCommandInteractionEvent event) {
         if (!event.isFromGuild()) {

@@ -56,6 +56,8 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
+import net.dv8tion.jda.api.interactions.IntegrationType;
+import net.dv8tion.jda.api.interactions.InteractionContextType;
 import net.dv8tion.jda.api.interactions.InteractionHook;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -220,13 +222,16 @@ public class PudelMusicPlugin {
     @SlashCommand(name = "music",
             description = "Open the Music Box or directly search & queue a song",
             nsfw = false,
+            global = false,
             options = {
                     @CommandOption(
                             name = "search",
                             description = "Search & queue a song directly (URL or search query, auto source)",
                             type = OptionType.STRING
                     )
-            }
+            },
+            integrationTo = {IntegrationType.GUILD_INSTALL},
+            integrationContext = {InteractionContextType.GUILD}
     )
     public void onMusic(SlashCommandInteractionEvent event) {
         Guild guild = event.getGuild();
