@@ -176,7 +176,7 @@ public class PudelPlayfulTime {
             },
             global = true,
             integrationTo = {IntegrationType.USER_INSTALL, IntegrationType.GUILD_INSTALL},
-            integrationContext = {InteractionContextType.PRIVATE_CHANNEL, InteractionContextType.GUILD}
+            integrationContext = {InteractionContextType.PRIVATE_CHANNEL, InteractionContextType.GUILD, InteractionContextType.BOT_DM}
     )
     public void handlePrankCommand(SlashCommandInteractionEvent event) {
         var nameOpt = event.getOption("name");
