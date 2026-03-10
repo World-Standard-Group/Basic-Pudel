@@ -21,6 +21,8 @@ jobs:
           - pudel-message
           - pudel-music
           - pudel-rolecolor
+          - pudel-playful
+          - pudel-componentv2
 
     steps:
       - name: Checkout repository
