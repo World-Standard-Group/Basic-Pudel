@@ -24,7 +24,7 @@ Whether you want to "bonk", "slap", or "hug" your friends, this plugin lets you 
 ## 🛠️ Commands
 
 ### `/prank`
-Opens the **Prank Control Panel** (visible only to you). From here, you can:
+Opens the modal for **quick fire prank** or **open control panel**. From here, you can:
 * Add, View, and Delete containers.
 * Add pranks (via upload or URL), edit, and remove them.
 * Export your entire collection to a JSON file or import an existing one.

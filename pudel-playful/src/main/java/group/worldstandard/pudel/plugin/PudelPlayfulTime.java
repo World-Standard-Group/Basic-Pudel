@@ -24,27 +24,21 @@ import group.worldstandard.pudel.api.database.ColumnType;
 import group.worldstandard.pudel.api.database.PluginDatabaseManager;
 import group.worldstandard.pudel.api.database.PluginRepository;
 import group.worldstandard.pudel.api.database.TableSchema;
-import group.worldstandard.pudel.plugin.dto.ContainerDto;
-import group.worldstandard.pudel.plugin.dto.PrankDto;
 import group.worldstandard.pudel.plugin.entity.PrankCollection;
 import group.worldstandard.pudel.plugin.entity.PrankContainer;
+import group.worldstandard.pudel.plugin.helper.PrankExportImportHelper;
+import group.worldstandard.pudel.plugin.helper.PrankFireHelper;
+import group.worldstandard.pudel.plugin.helper.PrankPanelBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.attachmentupload.AttachmentUpload;
 import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.container.Container;
-import net.dv8tion.jda.api.components.container.ContainerChildComponent;
-import net.dv8tion.jda.api.components.filedisplay.FileDisplay;
 import net.dv8tion.jda.api.components.label.Label;
-import net.dv8tion.jda.api.components.mediagallery.MediaGallery;
-import net.dv8tion.jda.api.components.mediagallery.MediaGalleryItem;
-import net.dv8tion.jda.api.components.selections.EntitySelectMenu;
-import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.components.separator.Separator;
 import net.dv8tion.jda.api.components.textdisplay.TextDisplay;
 import net.dv8tion.jda.api.components.textinput.TextInput;
 import net.dv8tion.jda.api.components.textinput.TextInputStyle;
 import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
@@ -53,33 +47,22 @@ import net.dv8tion.jda.api.interactions.IntegrationType;
 import net.dv8tion.jda.api.interactions.InteractionContextType;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.modals.Modal;
-import net.dv8tion.jda.api.utils.FileUpload;
-import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
 import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
 import tools.jackson.databind.ObjectMapper;
 
-import java.awt.Color;
-import java.io.InputStream;
+import java.awt.*;
 import java.net.URI;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Playful Prank Plugin for Pudel Discord Bot
- * <p>
- * Allows users to create prank containers with image/gif collections,
- * each with custom placeholder text. When invoked, a random image/gif
- * is pulled from the container and posted with the formatted message.
- * <p>
- * Commands:
- * <ul>
- *   <li>{@code /prank} — Opens a Quick Prank modal with a container select menu
- *       and optional target user select. Selecting a container fires the prank
- *       in one shot; selecting "⚙️ Open Control Panel" opens the management panel.</li>
- *   <li>{@code /prank <name> [target]} — Fires a random prank from the named container directly</li>
- * </ul>
+ * Playful Prank Plugin for Pudel Discord Bot.
+ *
+ * <p>Delegates fire logic to {@link PrankFireHelper},
+ * panel rendering to {@link PrankPanelBuilder}, and
+ * export/import to {@link PrankExportImportHelper}.
  *
  * @author Zazalng
  * @since 1.0.0
@@ -103,27 +86,30 @@ public class PudelPlayfulTime {
     private static final Color ACCENT_IO = new Color(0xA78BFA);
 
     // ==================== STATE ====================
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     private PluginContext ctx;
-    private PluginDatabaseManager db;
     private PluginRepository<PrankContainer> containerRepo;
     private PluginRepository<PrankCollection> collectionRepo;
 
-    /** Tracks which container a user is currently viewing in the control panel. */
     private final Map<String, String> viewingContainer = new ConcurrentHashMap<>();
-    /** Tracks control panel messages for editing. */
     private final Map<String, Message> controlMessages = new ConcurrentHashMap<>();
-
     private final Random random = new Random();
+
+    private PrankPanelBuilder panelBuilder;
+    private PrankFireHelper fireHelper;
+    private PrankExportImportHelper exportImportHelper;
 
     // ==================== LIFECYCLE ====================
 
     @OnEnable
     public void onEnable(PluginContext ctx) {
         this.ctx = ctx;
-        this.db = ctx.getDatabaseManager();
-        initializeDatabase();
+        PluginDatabaseManager db = ctx.getDatabaseManager();
+        initializeDatabase(db);
+
+        this.panelBuilder = new PrankPanelBuilder(containerRepo, collectionRepo, BTN, MENU, ACCENT_MAIN, ACCENT_VIEW);
+        this.fireHelper = new PrankFireHelper(containerRepo, collectionRepo, controlMessages, viewingContainer, random, MODAL, ACCENT_PRANK, panelBuilder);
+        this.exportImportHelper = new PrankExportImportHelper(ctx, new ObjectMapper(), containerRepo, collectionRepo, controlMessages, MODAL, ACCENT_IO, panelBuilder);
+
         ctx.log("info", "Pudel's Playful Time has initialized — let the pranks begin!");
     }
 
@@ -137,7 +123,7 @@ public class PudelPlayfulTime {
         return true;
     }
 
-    private void initializeDatabase() {
+    private void initializeDatabase(PluginDatabaseManager db) {
         TableSchema containerSchema = TableSchema.builder("prank_container")
                 .column("user_id", ColumnType.STRING, 20, false)
                 .column("container_id", ColumnType.STRING, false)
@@ -169,16 +155,8 @@ public class PudelPlayfulTime {
             description = "Open prank control panel or fire a prank",
             nsfw = false,
             options = {
-                    @CommandOption(
-                            name = "name",
-                            description = "Container name to fire a random prank from",
-                            type = OptionType.STRING
-                    ),
-                    @CommandOption(
-                            name = "target",
-                            description = "User to prank",
-                            type = OptionType.USER
-                    )
+                    @CommandOption(name = "name", description = "Container name to fire a random prank from", type = OptionType.STRING),
+                    @CommandOption(name = "target", description = "User to prank", type = OptionType.USER)
             },
             global = true,
             integrationTo = {IntegrationType.USER_INSTALL, IntegrationType.GUILD_INSTALL},
@@ -189,345 +167,10 @@ public class PudelPlayfulTime {
         var targetOpt = event.getOption("target");
 
         if (nameOpt != null) {
-            // Fire mode: /prank <name> [target]
-            firePrank(event, nameOpt.getAsString(), targetOpt != null ? targetOpt.getAsUser() : null);
+            fireHelper.firePrank(event, nameOpt.getAsString(), targetOpt != null ? targetOpt.getAsUser() : null);
         } else {
-            // Quick-fire / control panel chooser modal
-            showFireSelectModal(event);
+            fireHelper.showFireSelectModal(event);
         }
-    }
-
-    // ==================== FIRE SELECT MODAL ====================
-
-    /**
-     * Shows a modal with a {@link StringSelectMenu} listing all the user's container names
-     * (plus a "⚙️ Open Control Panel" fallback option) and an {@link EntitySelectMenu}
-     * for optionally selecting a target user — allowing one-shot prank firing.
-     * <p>
-     * If the user selects the control panel option, or has no containers,
-     * the control panel is opened instead.
-     */
-    private void showFireSelectModal(SlashCommandInteractionEvent event) {
-        String userId = event.getUser().getId();
-        List<PrankContainer> myContainers = containerRepo.query()
-                .where("user_id", userId)
-                .list();
-
-        if (myContainers.isEmpty()) {
-            // No containers — go straight to control panel
-            openControlPanel(event);
-            return;
-        }
-
-        // Build container select menu
-        StringSelectMenu.Builder containerMenu = StringSelectMenu.create("container-select")
-                .setPlaceholder("🎯 Pick a container to fire…");
-
-        for (PrankContainer c : myContainers) {
-            long prankCount = collectionRepo.query()
-                    .where("container_id", c.getContainerId())
-                    .count();
-            containerMenu.addOption(
-                    c.getName() + " (" + prankCount + " pranks)",
-                    c.getContainerId(),
-                    "Used " + c.getUsage() + " times"
-            );
-        }
-
-        // Add control panel fallback option
-        containerMenu.addOption("⚙️ Open Control Panel", "open-control-panel",
-                "Manage your prank containers");
-
-        // Build target user select menu (optional)
-        EntitySelectMenu targetMenu = EntitySelectMenu.create("target-select", EntitySelectMenu.SelectTarget.USER)
-                .setPlaceholder("👤 Select a target (optional)")
-                .setRequired(false)
-                .setMaxValues(1)
-                .build();
-
-        event.replyModal(Modal.create(MODAL + "fire-select", "🎭 Quick Prank")
-                .addComponents(
-                        Label.of("📦 Container", containerMenu.build()),
-                        Label.of("🎯 Target User (optional)", targetMenu)
-                )
-                .build()
-        ).queue();
-    }
-
-    // ==================== FIRE PRANK ====================
-
-    /**
-     * Handles the fire-select modal response.
-     * <p>
-     * Reads the selected container from the {@link StringSelectMenu} and the optional
-     * target user from the {@link EntitySelectMenu}. If the user chose
-     * "open-control-panel" or left the selection empty, opens the control panel.
-     * Otherwise, fires a random prank from the selected container.
-     */
-    private void handleFireSelectModal(ModalInteractionEvent event, String userId) {
-        // Read container selection
-        var containerMapping = event.getValue("container-select");
-        if (containerMapping == null || containerMapping.getAsStringList().isEmpty()) {
-            // No selection — fall back to control panel
-            openControlPanelFromModal(event, userId);
-            return;
-        }
-
-        String selectedContainerId = containerMapping.getAsStringList().getFirst();
-
-        if ("open-control-panel".equals(selectedContainerId)) {
-            openControlPanelFromModal(event, userId);
-            return;
-        }
-
-        // Validate the container exists and belongs to this user
-        PrankContainer container = findContainerById(selectedContainerId);
-        if (container == null || !container.getUserId().equals(userId)) {
-            openControlPanelFromModal(event, userId);
-            return;
-        }
-
-        // Read optional target user
-        User target = null;
-        var targetMapping = event.getValue("target-select");
-        if (targetMapping != null && !targetMapping.getAsStringList().isEmpty()) {
-            String targetId = targetMapping.getAsStringList().getFirst();
-            target = event.getJDA().getUserById(targetId);
-        }
-
-        // Fire the prank
-        fireModalPrank(event, container, target);
-    }
-
-    /**
-     * Opens the control panel from a modal interaction (since ModalInteractionEvent
-     * cannot use {@code replyModal}, we reply with an ephemeral message instead).
-     */
-    private void openControlPanelFromModal(ModalInteractionEvent event, String userId) {
-        // Clean up old session
-        Message oldMsg = controlMessages.remove(userId);
-        if (oldMsg != null) {
-            try { oldMsg.delete().queue(null, _ -> {}); } catch (Exception _) {}
-        }
-        viewingContainer.remove(userId);
-
-        event.reply(buildMainPanel(userId).build())
-                .setEphemeral(true)
-                .queue(hook -> hook.retrieveOriginal().queue(msg -> controlMessages.put(userId, msg)));
-    }
-
-    /**
-     * Fires a random prank from the given container via a modal interaction.
-     */
-    private void fireModalPrank(ModalInteractionEvent event, PrankContainer container, User target) {
-        List<PrankCollection> pranks = collectionRepo.query()
-                .where("container_id", container.getContainerId())
-                .list();
-
-        if (pranks.isEmpty()) {
-            event.reply("❌ Container **" + container.getName() + "** is empty — add some pranks first!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        // Pick a random prank
-        PrankCollection prank = pranks.get(random.nextInt(pranks.size()));
-
-        // Replace placeholders: %m = invoker, %t = target
-        String invokerMention = event.getUser().getAsMention();
-        String targetMention = target != null ? target.getAsMention() : "";
-        String message = prank.getPlaceholder()
-                .replace("%m", invokerMention)
-                .replace("%t", targetMention);
-
-        // Increment usage counter
-        container.setUsage(container.getUsage() + 1);
-        containerRepo.save(container);
-
-        // Build the prank message with Components v2
-        Container prankCard = Container.of(
-                TextDisplay.of("*%s*".formatted(message)),
-                MediaGallery.of(MediaGalleryItem.fromUrl(prank.getUrl())),
-                Separator.create(false, Separator.Spacing.SMALL),
-                TextDisplay.of("-# 📦 " + container.getName() + " • Used " + container.getUsage() + " times")
-        ).withAccentColor(ACCENT_PRANK);
-
-        event.reply(
-                new MessageCreateBuilder()
-                        .useComponentsV2(true)
-                        .setComponents(prankCard)
-                        .build()
-        ).queue();
-    }
-
-    private void firePrank(SlashCommandInteractionEvent event, String name, User target) {
-        // Find container by name (case-insensitive search)
-        List<PrankContainer> containers = containerRepo.query()
-                .where("user_id", event.getUser().getId())
-                .where("name", name)
-                .list();
-
-        if (containers.isEmpty()) {
-            event.reply("❌ No prank container named **" + name + "** found!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        PrankContainer container = containers.getFirst();
-
-        // Get all pranks in this container
-        List<PrankCollection> pranks = collectionRepo.query()
-                .where("container_id", container.getContainerId())
-                .list();
-
-        if (pranks.isEmpty()) {
-            event.reply("❌ Container **" + name + "** is empty — add some pranks first!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        // Pick a random prank
-        PrankCollection prank = pranks.get(random.nextInt(pranks.size()));
-
-        // Replace placeholders: %m = invoker, %t = target
-        String invokerMention = event.getUser().getAsMention();
-        String targetMention = target != null ? target.getAsMention() : "";
-        String message = prank.getPlaceholder()
-                .replace("%m", invokerMention)
-                .replace("%t", targetMention);
-
-        // Increment usage counter
-        container.setUsage(container.getUsage() + 1);
-        containerRepo.save(container);
-
-        // Build the prank message with Components v2
-        Container prankCard = Container.of(
-                TextDisplay.of("%s".formatted(message)),
-                MediaGallery.of(MediaGalleryItem.fromUrl(prank.getUrl())),
-                Separator.create(false, Separator.Spacing.SMALL),
-                TextDisplay.of("-# 📦 " + container.getName() + " • Used " + container.getUsage() + " times")
-        ).withAccentColor(ACCENT_PRANK);
-
-        event.reply(
-                new MessageCreateBuilder()
-                        .useComponentsV2(true)
-                        .setComponents(prankCard)
-                        .build()
-        ).queue();
-    }
-
-    // ==================== CONTROL PANEL ====================
-
-    private void openControlPanel(SlashCommandInteractionEvent event) {
-        String userId = event.getUser().getId();
-
-        // Clean up old session
-        Message oldMsg = controlMessages.remove(userId);
-        if (oldMsg != null) {
-            try { oldMsg.delete().queue(null, _ -> {}); } catch (Exception _) {}
-        }
-        viewingContainer.remove(userId);
-
-        event.reply(buildMainPanel(userId).build())
-                .setEphemeral(true)
-                .queue(hook -> hook.retrieveOriginal().queue(msg -> controlMessages.put(userId, msg)));
-    }
-
-    private Container buildMainPanelContainer(String userId) {
-        List<PrankContainer> myContainers = containerRepo.query()
-                .where("user_id", userId)
-                .list();
-
-        List<ContainerChildComponent> children = new ArrayList<>();
-        children.add(TextDisplay.of("# 🎭 Prank Control Panel"));
-        children.add(Separator.create(true, Separator.Spacing.SMALL));
-
-        if (myContainers.isEmpty()) {
-            children.add(TextDisplay.of("_You don't have any prank containers yet._\n_Use **Add Container** to create one!_"));
-        } else {
-            StringBuilder sb = new StringBuilder();
-            sb.append("### 📦 Your Containers\n");
-            for (PrankContainer c : myContainers) {
-                long prankCount = collectionRepo.query()
-                        .where("container_id", c.getContainerId())
-                        .count();
-                sb.append("• **").append(c.getName()).append("** — ")
-                        .append(prankCount).append(" pranks, used ")
-                        .append(c.getUsage()).append(" times\n");
-            }
-            children.add(TextDisplay.of(sb.toString()));
-        }
-
-        children.add(Separator.create(true, Separator.Spacing.SMALL));
-        children.add(ActionRow.of(
-                Button.success(BTN + "add-container", "➕ Add Container"),
-                Button.primary(BTN + "view-container", "👁️ View Container"),
-                Button.danger(BTN + "delete-container", "🗑️ Delete Container")
-        ));
-        children.add(ActionRow.of(
-                Button.secondary(BTN + "export-container", "📤 Export JSON"),
-                Button.secondary(BTN + "import-container", "📥 Import JSON")
-        ));
-
-        return Container.of(children).withAccentColor(ACCENT_MAIN);
-    }
-
-    private MessageCreateBuilder buildMainPanel(String userId) {
-        return new MessageCreateBuilder()
-                .useComponentsV2(true)
-                .setComponents(buildMainPanelContainer(userId));
-    }
-
-    private MessageEditBuilder editMainPanel(String userId) {
-        return new MessageEditBuilder()
-                .useComponentsV2(true)
-                .setComponents(buildMainPanelContainer(userId));
-    }
-
-    // ==================== VIEW CONTAINER PANEL ====================
-
-    private MessageEditBuilder editViewPanel(String userId, String containerId) {
-        PrankContainer container = findContainerById(containerId);
-        if (container == null) return editMainPanel(userId);
-
-        List<PrankCollection> pranks = collectionRepo.query()
-                .where("container_id", containerId)
-                .list();
-
-        List<ContainerChildComponent> children = new ArrayList<>();
-        children.add(TextDisplay.of("# 📦 " + container.getName()));
-        children.add(Separator.create(true, Separator.Spacing.SMALL));
-
-        if (pranks.isEmpty()) {
-            children.add(TextDisplay.of("_This container is empty._\n_Use **Add Prank** to upload an image/gif!_"));
-        } else {
-            StringBuilder sb = new StringBuilder();
-            sb.append("### 🎴 Pranks (").append(pranks.size()).append(")\n");
-            int idx = 1;
-            for (PrankCollection p : pranks) {
-                String shortId = p.getPrankId().substring(0, 8);
-                String truncatedPlaceholder = p.getPlaceholder().length() > 40
-                        ? p.getPlaceholder().substring(0, 40) + "..."
-                        : p.getPlaceholder();
-                sb.append(idx++).append(". `").append(shortId).append("` — _")
-                        .append(truncatedPlaceholder).append("_\n");
-            }
-            children.add(TextDisplay.of(sb.toString()));
-        }
-
-        children.add(Separator.create(true, Separator.Spacing.SMALL));
-        children.add(ActionRow.of(
-                Button.success(BTN + "add-prank", "➕ Add Prank"),
-                Button.primary(BTN + "edit-prank", "✏️ Edit Prank"),
-                Button.danger(BTN + "remove-prank", "🗑️ Remove Prank")
-        ));
-        children.add(ActionRow.of(
-                Button.secondary(BTN + "back-main", "⬅️ Back")
-        ));
-
-        return new MessageEditBuilder()
-                .useComponentsV2(true)
-                .setComponents(Container.of(children).withAccentColor(ACCENT_VIEW));
     }
 
     // ==================== BUTTON HANDLER ====================
@@ -538,30 +181,30 @@ public class PudelPlayfulTime {
         String buttonId = event.getComponentId().substring(BTN.length());
 
         switch (buttonId) {
-            // Main panel buttons
+            // Main panel
             case "add-container" -> showAddContainerModal(event);
-            case "view-container" -> showContainerSelectMenu(event, userId, "view");
-            case "delete-container" -> showContainerSelectMenu(event, userId, "delete");
-            case "export-container" -> handleExportAll(event, userId);
-            case "import-container" -> showImportModal(event);
+            case "view-container" -> event.editMessage(panelBuilder.editContainerSelectPanel(userId, "view").build()).queue();
+            case "delete-container" -> event.editMessage(panelBuilder.editContainerSelectPanel(userId, "delete").build()).queue();
+            case "export-container" -> exportImportHelper.handleExportAll(event, userId);
+            case "import-container" -> exportImportHelper.showImportModal(event);
 
-            // View container buttons
+            // View container
             case "add-prank" -> showAddPrankOptions(event, userId);
             case "add-prank-url" -> showAddPrankUrlModal(event, userId);
             case "add-prank-upload" -> showAddPrankUploadModal(event, userId);
-            case "edit-prank" -> showPrankSelectMenu(event, userId, "edit");
-            case "remove-prank" -> showPrankSelectMenu(event, userId, "remove");
-            case "back-main" -> {
-                viewingContainer.remove(userId);
-                event.editMessage(editMainPanel(userId).build()).queue();
+            case "edit-prank" -> {
+                String containerId = viewingContainer.get(userId);
+                if (containerId != null) event.editMessage(panelBuilder.editPrankSelectPanel(containerId, "edit").build()).queue();
             }
+            case "remove-prank" -> {
+                String containerId = viewingContainer.get(userId);
+                if (containerId != null) event.editMessage(panelBuilder.editPrankSelectPanel(containerId, "remove").build()).queue();
+            }
+            case "back-main" -> { viewingContainer.remove(userId); event.editMessage(panelBuilder.editMainPanel(userId).build()).queue(); }
             case "back-view" -> {
                 String containerId = viewingContainer.get(userId);
-                if (containerId != null) {
-                    event.editMessage(editViewPanel(userId, containerId).build()).queue();
-                } else {
-                    event.editMessage(editMainPanel(userId).build()).queue();
-                }
+                if (containerId != null) event.editMessage(panelBuilder.editViewPanel(userId, containerId).build()).queue();
+                else event.editMessage(panelBuilder.editMainPanel(userId).build()).queue();
             }
         }
     }
@@ -574,19 +217,17 @@ public class PudelPlayfulTime {
         String modalId = event.getModalId().substring(MODAL.length());
 
         try {
-            if (modalId.equals("fire-select")) {
-                handleFireSelectModal(event, userId);
-            } else if (modalId.equals("add-container")) {
-                handleAddContainerModal(event, userId);
-            } else if (modalId.equals("add-prank-upload")) {
-                handleAddPrankUploadModal(event, userId);
-            } else if (modalId.equals("add-prank-url")) {
-                handleAddPrankUrlModal(event, userId);
-            } else if (modalId.equals("import-json")) {
-                handleImportModal(event, userId);
-            } else if (modalId.startsWith("edit-prank:")) {
-                String prankId = modalId.substring("edit-prank:".length());
-                handleEditPrankModal(event, userId, prankId);
+            switch (modalId) {
+                case "fire-select" -> fireHelper.handleFireSelectModal(event, userId);
+                case "add-container" -> handleAddContainerModal(event, userId);
+                case "add-prank-upload" -> handleAddPrankUploadModal(event, userId);
+                case "add-prank-url" -> handleAddPrankUrlModal(event, userId);
+                case "import-json" -> exportImportHelper.handleImportModal(event, userId);
+                default -> {
+                    if (modalId.startsWith("edit-prank:")) {
+                        handleEditPrankModal(event, userId, modalId.substring("edit-prank:".length()));
+                    }
+                }
             }
         } catch (Exception e) {
             ctx.log("error", "Modal error: " + e.getMessage());
@@ -606,7 +247,7 @@ public class PudelPlayfulTime {
         switch (menuId) {
             case "view-container" -> {
                 viewingContainer.put(userId, selected);
-                event.editMessage(editViewPanel(userId, selected).build()).queue();
+                event.editMessage(panelBuilder.editViewPanel(userId, selected).build()).queue();
             }
             case "delete-container" -> handleDeleteContainer(event, userId, selected);
             case "edit-prank" -> showEditPrankModal(event, selected);
@@ -614,254 +255,123 @@ public class PudelPlayfulTime {
         }
     }
 
-    // ==================== ADD CONTAINER ====================
+    // ==================== CONTAINER CRUD ====================
 
     private void showAddContainerModal(ButtonInteractionEvent event) {
         TextInput nameInput = TextInput.create("name", TextInputStyle.SHORT)
-                .setPlaceholder("e.g. hit, bonk, slap")
-                .setMinLength(1)
-                .setMaxLength(32)
-                .setRequired(true)
-                .build();
+                .setPlaceholder("e.g. hit, bonk, slap").setMinLength(1).setMaxLength(32).setRequired(true).build();
 
         event.replyModal(Modal.create(MODAL + "add-container", "Create New Container")
-                .addComponents(Label.of("Container Name (unique)", nameInput))
-                .build()
+                .addComponents(Label.of("Container Name (unique)", nameInput)).build()
         ).queue();
     }
 
     private void handleAddContainerModal(ModalInteractionEvent event, String userId) {
         String name = getModalValue(event, "name").trim().toLowerCase();
-
         if (name.isEmpty()) {
-            event.reply("❌ Container name cannot be empty!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ Container name cannot be empty!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
-        // Check uniqueness per user
-        List<PrankContainer> existing = containerRepo.query()
-                .where("user_id", userId)
-                .where("name", name)
-                .list();
-        if (!existing.isEmpty()) {
-            event.reply("❌ You already have a container named **" + name + "**!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+        if (!containerRepo.query().where("user_id", userId).where("name", name).list().isEmpty()) {
+            event.reply("❌ You already have a container named **" + name + "**!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
-        PrankContainer container = new PrankContainer(
-                userId,
-                UUID.randomUUID().toString(),
-                name
-        );
-        containerRepo.save(container);
+        containerRepo.save(new PrankContainer(userId, UUID.randomUUID().toString(), name));
 
-        // Update main panel
         Message ctrlMsg = controlMessages.get(userId);
-        if (ctrlMsg != null) {
-            ctrlMsg.editMessage(editMainPanel(userId).build()).queue();
-        }
+        if (ctrlMsg != null) ctrlMsg.editMessage(panelBuilder.editMainPanel(userId).build()).queue();
 
-        event.reply("✅ Container **" + name + "** created!")
-                .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+        event.reply("✅ Container **" + name + "** created!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
     }
-
-    // ==================== DELETE CONTAINER ====================
 
     private void handleDeleteContainer(StringSelectInteractionEvent event, String userId, String containerId) {
         PrankContainer container = findContainerById(containerId);
         if (container == null || !container.getUserId().equals(userId)) {
-            event.reply("❌ Container not found or you don't own it.")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ Container not found or you don't own it.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
-        // Delete all pranks in this container
-        List<PrankCollection> pranks = collectionRepo.query()
-                .where("container_id", containerId)
-                .list();
-        for (PrankCollection p : pranks) {
+        for (PrankCollection p : collectionRepo.query().where("container_id", containerId).list()) {
             collectionRepo.deleteById(p.getId());
         }
-
-        // Delete the container
         containerRepo.deleteById(container.getId());
-
-        // If user was viewing this container, clear it
         viewingContainer.remove(userId);
 
-        // Edit the same message back to the main panel
-        event.editMessage(editMainPanel(userId).build()).queue();
+        event.editMessage(panelBuilder.editMainPanel(userId).build()).queue();
     }
 
-    // ==================== VIEW / SELECT CONTAINER ====================
-
-    private MessageEditBuilder editContainerSelectPanel(String userId, String action) {
-        List<PrankContainer> myContainers = containerRepo.query()
-                .where("user_id", userId)
-                .list();
-
-        List<ContainerChildComponent> children = new ArrayList<>();
-        children.add(TextDisplay.of("### 📦 Select Container to " + (action.equals("view") ? "View" : "Delete")));
-        children.add(Separator.create(true, Separator.Spacing.SMALL));
-
-        if (myContainers.isEmpty()) {
-            children.add(TextDisplay.of("_You don't have any containers yet._"));
-        } else {
-            StringSelectMenu.Builder menuBuilder = StringSelectMenu.create(MENU + action + "-container")
-                    .setPlaceholder("Select a container");
-
-            for (PrankContainer c : myContainers) {
-                long prankCount = collectionRepo.query()
-                        .where("container_id", c.getContainerId())
-                        .count();
-                menuBuilder.addOption(
-                        c.getName() + " (" + prankCount + " pranks)",
-                        c.getContainerId()
-                );
-            }
-            children.add(ActionRow.of(menuBuilder.build()));
-        }
-
-        children.add(Separator.create(true, Separator.Spacing.SMALL));
-        children.add(ActionRow.of(
-                Button.secondary(BTN + "back-main", "⬅️ Back")
-        ));
-
-        return new MessageEditBuilder()
-                .useComponentsV2(true)
-                .setComponents(Container.of(children).withAccentColor(ACCENT_MAIN));
-    }
-
-    private void showContainerSelectMenu(ButtonInteractionEvent event, String userId, String action) {
-        event.editMessage(editContainerSelectPanel(userId, action).build()).queue();
-    }
-
-    // ==================== ADD PRANK ====================
+    // ==================== PRANK CRUD ====================
 
     private void showAddPrankOptions(ButtonInteractionEvent event, String userId) {
-        String containerId = viewingContainer.get(userId);
-        if (containerId == null) {
-            event.reply("❌ No container selected!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+        if (viewingContainer.get(userId) == null) {
+            event.reply("❌ No container selected!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
         event.editMessage(
-                new MessageEditBuilder()
-                        .useComponentsV2(true)
-                        .setComponents(Container.of(
-                                TextDisplay.of("### ➕ Add Prank"),
-                                TextDisplay.of("Choose how to provide the image/GIF:"),
-                                Separator.create(true, Separator.Spacing.SMALL),
-                                ActionRow.of(
-                                        Button.success(BTN + "add-prank-upload", "📤 Upload File"),
-                                        Button.primary(BTN + "add-prank-url", "🔗 Paste URL")
-                                ),
-                                Separator.create(true, Separator.Spacing.SMALL),
-                                ActionRow.of(
-                                        Button.secondary(BTN + "back-view", "⬅️ Back")
-                                )
-                        ).withAccentColor(ACCENT_VIEW))
-                        .build()
+                new MessageEditBuilder().useComponentsV2(true).setComponents(Container.of(
+                        TextDisplay.of("### ➕ Add Prank"),
+                        TextDisplay.of("Choose how to provide the image/GIF:"),
+                        Separator.create(true, Separator.Spacing.SMALL),
+                        ActionRow.of(Button.success(BTN + "add-prank-upload", "📤 Upload File"), Button.primary(BTN + "add-prank-url", "🔗 Paste URL")),
+                        Separator.create(true, Separator.Spacing.SMALL),
+                        ActionRow.of(Button.secondary(BTN + "back-view", "⬅️ Back"))
+                ).withAccentColor(ACCENT_VIEW)).build()
         ).queue();
     }
 
-    /**
-     * Opens a modal with {@link AttachmentUpload} for file upload + placeholder text input.
-     * The user uploads the file directly inside the modal.
-     */
     private void showAddPrankUploadModal(ButtonInteractionEvent event, String userId) {
-        String containerId = viewingContainer.get(userId);
-        if (containerId == null) {
-            event.reply("❌ No container selected!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+        if (viewingContainer.get(userId) == null) {
+            event.reply("❌ No container selected!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
-
-        AttachmentUpload fileUpload = AttachmentUpload.create("upload")
-                .setRequiredRange(1, 1)
-                .setRequired(true)
-                .build();
-
-        TextInput placeholderInput = TextInput.create("placeholder", TextInputStyle.PARAGRAPH)
-                .setPlaceholder("%m hit %t so hard!\n(%m = you, %t = target)")
-                .setRequired(false)
-                .setMaxLength(500)
-                .build();
 
         event.replyModal(Modal.create(MODAL + "add-prank-upload", "Add Prank — Upload")
                 .addComponents(
-                        Label.of("Image/GIF File", fileUpload),
-                        Label.of("Message Template (%m = you, %t = target)", placeholderInput)
-                )
-                .build()
+                        Label.of("Image/GIF File", AttachmentUpload.create("upload").setRequiredRange(1, 1).setRequired(true).build()),
+                        Label.of("Message Template (%m = you, %t = target)", TextInput.create("placeholder", TextInputStyle.PARAGRAPH)
+                                .setPlaceholder("%m hit %t so hard!\n(%m = you, %t = target)").setRequired(false).setMaxLength(500).build())
+                ).build()
         ).queue();
     }
 
-    /**
-     * Opens a modal with a URL text input + placeholder text input.
-     * For users who already have a hosted image URL.
-     */
     private void showAddPrankUrlModal(ButtonInteractionEvent event, String userId) {
-        String containerId = viewingContainer.get(userId);
-        if (containerId == null) {
-            event.reply("❌ No container selected!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+        if (viewingContainer.get(userId) == null) {
+            event.reply("❌ No container selected!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
-
-        TextInput urlInput = TextInput.create("url", TextInputStyle.SHORT)
-                .setPlaceholder("https://example.com/funny.gif")
-                .setRequired(true)
-                .build();
-
-        TextInput placeholderInput = TextInput.create("placeholder", TextInputStyle.PARAGRAPH)
-                .setPlaceholder("%m hit %t so hard!\n(%m = you, %t = target)")
-                .setRequired(false)
-                .setMaxLength(500)
-                .build();
 
         event.replyModal(Modal.create(MODAL + "add-prank-url", "Add Prank — URL")
                 .addComponents(
-                        Label.of("Image/GIF URL", urlInput),
-                        Label.of("Message Template (%m = you, %t = target)", placeholderInput)
-                )
-                .build()
+                        Label.of("Image/GIF URL", TextInput.create("url", TextInputStyle.SHORT).setPlaceholder("https://example.com/funny.gif").setRequired(true).build()),
+                        Label.of("Message Template (%m = you, %t = target)", TextInput.create("placeholder", TextInputStyle.PARAGRAPH)
+                                .setPlaceholder("%m hit %t so hard!\n(%m = you, %t = target)").setRequired(false).setMaxLength(500).build())
+                ).build()
         ).queue();
     }
 
-    /**
-     * Handles the upload modal — extracts the {@link Message.Attachment} from the
-     * {@link AttachmentUpload} component, then saves the prank with its URL.
-     */
     private void handleAddPrankUploadModal(ModalInteractionEvent event, String userId) {
         String containerId = viewingContainer.get(userId);
         if (containerId == null) {
-            event.reply("❌ No container selected! Go back and select one.")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ No container selected! Go back and select one.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
-        // Get the uploaded attachment(s) from the AttachmentUpload component
         var uploadMapping = event.getValue("upload");
         if (uploadMapping == null) {
-            event.reply("❌ No file was uploaded!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ No file was uploaded!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
         List<Message.Attachment> attachments = uploadMapping.getAsAttachmentList();
         if (attachments.isEmpty()) {
-            event.reply("❌ No file was uploaded!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ No file was uploaded!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
         Message.Attachment attachment = attachments.getFirst();
-
-        // Validate file type
         if (!attachment.isImage() && !attachment.isVideo()) {
             event.reply("❌ Unsupported file type! Please upload a `.png`, `.jpg`, `.gif`, or `.webp` file.")
                     .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
@@ -870,38 +380,22 @@ public class PudelPlayfulTime {
 
         String placeholder = getModalValue(event, "placeholder").trim();
 
-        // Defer reply since upload takes time
         event.deferReply(true).queue(hook -> {
             event.getUser().openPrivateChannel().flatMap(
-                    ch -> ch.sendMessage("Please kept this message alive for its url reference.").addFiles(attachment.getProxy().downloadAsFileUpload(attachment.getFileName()))
+                    ch -> ch.sendMessage("Please keep this message; it contains a permanent URL for your uploaded file.").addFiles(attachment.getProxy().downloadAsFileUpload(attachment.getFileName()))
             ).queue(m -> {
-                PrankCollection prank = new PrankCollection(
-                        UUID.randomUUID().toString(),
-                        containerId,
-                        m.getAttachments().getFirst().getUrl(),
-                        placeholder
-                );
-                collectionRepo.save(prank);
-
-                // Update view panel
+                collectionRepo.save(new PrankCollection(UUID.randomUUID().toString(), containerId, m.getAttachments().getFirst().getUrl(), placeholder));
                 Message ctrlMsg = controlMessages.get(userId);
-                if (ctrlMsg != null) {
-                    ctrlMsg.editMessage(editViewPanel(userId, containerId).build()).queue();
-                }
+                if (ctrlMsg != null) ctrlMsg.editMessage(panelBuilder.editViewPanel(userId, containerId).build()).queue();
             });
-
             hook.editOriginal("✅ Prank added! File uploaded successfully.").queue(m -> m.delete().queueAfter(3, TimeUnit.SECONDS));
         });
     }
 
-    /**
-     * Handles the URL modal — validates the URL and saves the prank directly.
-     */
     private void handleAddPrankUrlModal(ModalInteractionEvent event, String userId) {
         String containerId = viewingContainer.get(userId);
         if (containerId == null) {
-            event.reply("❌ No container selected! Go back and select one.")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ No container selected! Go back and select one.").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -914,111 +408,42 @@ public class PudelPlayfulTime {
             return;
         }
 
-        savePrankAndRefresh(event, userId, containerId, url, placeholder);
-    }
+        collectionRepo.save(new PrankCollection(UUID.randomUUID().toString(), containerId, url, placeholder));
 
-
-    private void savePrankAndRefresh(ModalInteractionEvent event, String userId, String containerId, String url, String placeholder) {
-        PrankCollection prank = new PrankCollection(
-                UUID.randomUUID().toString(),
-                containerId,
-                url,
-                placeholder
-        );
-        collectionRepo.save(prank);
-
-        // Update view panel
         Message ctrlMsg = controlMessages.get(userId);
-        if (ctrlMsg != null) {
-            ctrlMsg.editMessage(editViewPanel(userId, containerId).build()).queue();
-        }
+        if (ctrlMsg != null) ctrlMsg.editMessage(panelBuilder.editViewPanel(userId, containerId).build()).queue();
 
-        event.reply("✅ Prank added!")
-                .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-    }
-
-    // ==================== EDIT PRANK ====================
-
-    private void showPrankSelectMenu(ButtonInteractionEvent event, String userId, String action) {
-        String containerId = viewingContainer.get(userId);
-        if (containerId == null) {
-            event.reply("❌ No container selected!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        List<PrankCollection> pranks = collectionRepo.query()
-                .where("container_id", containerId)
-                .list();
-
-        List<ContainerChildComponent> children = new ArrayList<>();
-        children.add(TextDisplay.of("### 🎴 Select Prank to " + (action.equals("edit") ? "Edit" : "Remove")));
-        children.add(Separator.create(true, Separator.Spacing.SMALL));
-
-        if (pranks.isEmpty()) {
-            children.add(TextDisplay.of("_This container has no pranks yet._"));
-        } else {
-            StringSelectMenu.Builder menuBuilder = StringSelectMenu.create(MENU + action + "-prank")
-                    .setPlaceholder("Select a prank to " + action);
-
-            for (PrankCollection p : pranks) {
-                String shortId = p.getPrankId().substring(0, 8);
-                String label = p.getPlaceholder().length() > 50
-                        ? p.getPlaceholder().substring(0, 50) + "..."
-                        : p.getPlaceholder();
-                menuBuilder.addOption(shortId + " — " + label, p.getPrankId());
-            }
-            children.add(ActionRow.of(menuBuilder.build()));
-        }
-
-        children.add(Separator.create(true, Separator.Spacing.SMALL));
-        children.add(ActionRow.of(
-                Button.secondary(BTN + "back-view", "⬅️ Back")
-        ));
-
-        event.editMessage(
-                new MessageEditBuilder()
-                        .useComponentsV2(true)
-                        .setComponents(Container.of(children).withAccentColor(ACCENT_VIEW))
-                        .build()
-        ).queue();
+        event.reply("✅ Prank added!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
     }
 
     private void showEditPrankModal(StringSelectInteractionEvent event, String prankId) {
         PrankCollection prank = findPrankById(prankId);
         if (prank == null) {
-            event.reply("❌ Prank not found!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ Prank not found!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
-        TextInput urlInput = TextInput.create("url", TextInputStyle.SHORT)
-                .setPlaceholder("Direct image/gif URL")
-                .setValue(prank.getUrl())
-                .setRequired(true)
-                .build();
-
-        TextInput placeholderInput = TextInput.create("placeholder", TextInputStyle.PARAGRAPH)
-                .setPlaceholder("%m hit %t so hard!")
-                .setValue(prank.getPlaceholder())
-                .setRequired(false)
-                .setMaxLength(500)
-                .build();
-
         event.replyModal(Modal.create(MODAL + "edit-prank:" + prankId, "Edit Prank")
                 .addComponents(
-                        Label.of("Image/GIF URL", urlInput),
-                        Label.of("Message Template (%m = you, %t = target)", placeholderInput)
-                )
-                .build()
+                        TextDisplay.of(prank.getUrl()),
+                        Label.of("Image/GIF URL", TextInput.create("url", TextInputStyle.SHORT).setPlaceholder("Direct image/gif URL").setValue(prank.getUrl()).setRequired(true).build()),
+                        Label.of(
+                                "Message Template (%m = you, %t = target)",
+                                TextInput.create("placeholder", TextInputStyle.PARAGRAPH)
+                                        .setPlaceholder("%m hit %t so hard!")
+                                        .setValue(prank.getPlaceholder().isEmpty() ? null:prank.getPlaceholder())
+                                        .setRequired(false)
+                                        .setMaxLength(500)
+                                        .build()
+                        )
+                ).build()
         ).queue();
     }
 
     private void handleEditPrankModal(ModalInteractionEvent event, String userId, String prankId) {
         PrankCollection prank = findPrankById(prankId);
         if (prank == null) {
-            event.reply("❌ Prank not found!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ Prank not found!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -1026,8 +451,7 @@ public class PudelPlayfulTime {
         String placeholder = getModalValue(event, "placeholder").trim();
 
         if (!isValidUrl(url)) {
-            event.reply("❌ Invalid URL!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ Invalid URL!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
@@ -1035,304 +459,39 @@ public class PudelPlayfulTime {
         prank.setPlaceholder(placeholder);
         collectionRepo.save(prank);
 
-        // Update view panel
         String containerId = viewingContainer.get(userId);
         if (containerId != null) {
             Message ctrlMsg = controlMessages.get(userId);
-            if (ctrlMsg != null) {
-                ctrlMsg.editMessage(editViewPanel(userId, containerId).build()).queue();
-            }
+            if (ctrlMsg != null) ctrlMsg.editMessage(panelBuilder.editViewPanel(userId, containerId).build()).queue();
         }
 
-        event.reply("✅ Prank updated!")
-                .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+        event.reply("✅ Prank updated!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
     }
-
-    // ==================== REMOVE PRANK ====================
 
     private void handleRemovePrank(StringSelectInteractionEvent event, String userId, String prankId) {
         PrankCollection prank = findPrankById(prankId);
         if (prank == null) {
-            event.reply("❌ Prank not found!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            event.reply("❌ Prank not found!").setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
             return;
         }
 
         collectionRepo.deleteById(prank.getId());
 
-        // Edit the same message back to the container view panel
         String containerId = viewingContainer.get(userId);
-        if (containerId != null) {
-            event.editMessage(editViewPanel(userId, containerId).build()).queue();
-        } else {
-            event.editMessage(editMainPanel(userId).build()).queue();
-        }
+        if (containerId != null) event.editMessage(panelBuilder.editViewPanel(userId, containerId).build()).queue();
+        else event.editMessage(panelBuilder.editMainPanel(userId).build()).queue();
     }
 
-    // ==================== EXPORT / IMPORT JSON ====================
-
-    /**
-     * Exports all of the user's containers and their pranks as a single JSON file.
-     * <p>
-     * JSON format (uses {@link ContainerDto} with {@code @JsonValue}):
-     * <pre>
-     * {
-     *   "bonk": [ { "id": "...", "url": "...", "placeholder": "..." } ],
-     *   "slap": [ { "id": "...", "url": "...", "placeholder": "..." } ]
-     * }
-     * </pre>
-     */
-    private void handleExportAll(ButtonInteractionEvent event, String userId) {
-        List<PrankContainer> myContainers = containerRepo.query()
-                .where("user_id", userId)
-                .list();
-
-        if (myContainers.isEmpty()) {
-            event.reply("❌ You don't have any containers to export!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        // Build map: container name → PrankDto[]
-        Map<String, PrankDto[]> map = new LinkedHashMap<>();
-        int totalPranks = 0;
-
-        for (PrankContainer c : myContainers) {
-            List<PrankCollection> pranks = collectionRepo.query()
-                    .where("container_id", c.getContainerId())
-                    .list();
-
-            PrankDto[] prankDtos = pranks.stream()
-                    .map(p -> new PrankDto(p.getPrankId(), p.getUrl(), p.getPlaceholder()))
-                    .toArray(PrankDto[]::new);
-
-            map.put(c.getName(), prankDtos);
-            totalPranks += prankDtos.length;
-        }
-
-        ContainerDto dto = new ContainerDto(map);
-
-        try {
-            byte[] jsonBytes = objectMapper.writerWithDefaultPrettyPrinter()
-                    .writeValueAsBytes(dto);
-
-            // Send the JSON file as a reply
-            event.reply(
-                    new MessageCreateBuilder()
-                            .useComponentsV2(true)
-                            .setComponents(Container.of(
-                                    TextDisplay.of("### 📤 Exported All Containers"),
-                                    Separator.create(false, Separator.Spacing.SMALL),
-                                    FileDisplay.fromFile(FileUpload.fromData(jsonBytes, "prank-%s-export.json".formatted(LocalDate.now().format(DateTimeFormatter.ISO_DATE)))),
-                                    TextDisplay.of("-# " + myContainers.size() + " container(s), "
-                                            + totalPranks + " prank(s) • Save this file to import later")
-                            ).withAccentColor(ACCENT_IO))
-                            .build()
-            ).setEphemeral(true).queue();
-        } catch (Exception e) {
-            ctx.log("error", "Export error: " + e.getMessage());
-            event.reply("❌ Failed to export: " + e.getMessage())
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-        }
-    }
-
-    /**
-     * Shows a modal with an {@link AttachmentUpload} for importing a JSON file.
-     */
-    private void showImportModal(ButtonInteractionEvent event) {
-        AttachmentUpload fileUpload = AttachmentUpload.create("json-file")
-                .setRequiredRange(1, 1)
-                .setRequired(true)
-                .build();
-
-        event.replyModal(Modal.create(MODAL + "import-json", "Import Prank Container")
-                .addComponents(
-                        Label.of("JSON File (exported from /prank)", fileUpload)
-                )
-                .build()
-        ).queue();
-    }
-
-    /**
-     * Handles the import modal — deserializes the uploaded JSON into {@link ContainerDto}
-     * (a map of container names → {@link PrankDto} arrays) and creates or merges each container.
-     * <p>
-     * Import logic per container entry:
-     * <ul>
-     *   <li>If a container with the same name exists for this user → merge new pranks</li>
-     *   <li>If no container with that name exists → create a new container with all its pranks</li>
-     *   <li>Container names are never changed — a different name always results in a new container</li>
-     * </ul>
-     */
-    private void handleImportModal(ModalInteractionEvent event, String userId) {
-        var uploadMapping = event.getValue("json-file");
-        if (uploadMapping == null) {
-            event.reply("❌ No file was uploaded!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        List<Message.Attachment> attachments = uploadMapping.getAsAttachmentList();
-        if (attachments.isEmpty()) {
-            event.reply("❌ No file was uploaded!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        Message.Attachment attachment = attachments.getFirst();
-
-        // Validate file type
-        if (!attachment.getFileName().toLowerCase().endsWith(".json")) {
-            event.reply("❌ Please upload a `.json` file!")
-                    .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
-            return;
-        }
-
-        // Defer reply since download + parsing takes time
-        event.deferReply(true).queue(hook -> attachment.getProxy().download().thenAccept(inputStream -> {
-            try (InputStream is = inputStream) {
-
-                ContainerDto dto = objectMapper.readValue(is, ContainerDto.class);
-
-                if (dto.containers() == null || dto.containers().isEmpty()) {
-                    hook.editOriginal("❌ JSON file is empty or has invalid format!")
-                            .queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
-                    return;
-                }
-
-                int containersCreated = 0;
-                int containersMerged = 0;
-                int totalImported = 0;
-                int totalUpdated = 0;
-                int totalSkipped = 0;
-
-                for (Map.Entry<String, PrankDto[]> entry : dto.containers().entrySet()) {
-                    String containerName = entry.getKey().trim().toLowerCase();
-                    PrankDto[] prankDtos = entry.getValue();
-
-                    if (containerName.isEmpty() || prankDtos == null) {
-                        totalSkipped++;
-                        continue;
-                    }
-
-                    // Check if user already has a container with this name
-                    List<PrankContainer> existing = containerRepo.query()
-                            .where("user_id", userId)
-                            .where("name", containerName)
-                            .list();
-
-                    PrankContainer container;
-
-                    if (!existing.isEmpty()) {
-                        // Merge into existing container
-                        container = existing.getFirst();
-                        containersMerged++;
-                    } else {
-                        // Create new container for this user
-                        container = new PrankContainer(userId, UUID.randomUUID().toString(), containerName);
-                        containerRepo.save(container);
-                        containersCreated++;
-                    }
-
-                    // Map existing pranks by prank ID for update/add logic
-                    Map<String, PrankCollection> existingById = new HashMap<>();
-                    for (PrankCollection p : collectionRepo.query()
-                            .where("container_id", container.getContainerId())
-                            .list()) {
-                        existingById.put(p.getPrankId(), p);
-                    }
-
-                    for (PrankDto prankDto : prankDtos) {
-                        String url = prankDto.url() != null ? prankDto.url().trim() : "";
-                        String placeholder = prankDto.placeholder() != null ? prankDto.placeholder().trim() : "";
-
-                        if (url.isEmpty() || placeholder.isEmpty() || !isValidUrl(url)) {
-                            totalSkipped++;
-                            continue;
-                        }
-
-                        // If ID is present and matches an existing prank → update it
-                        if (prankDto.id() != null && existingById.containsKey(prankDto.id())) {
-                            PrankCollection existing2 = existingById.get(prankDto.id());
-                            boolean changed = false;
-                            if (!existing2.getUrl().equals(url)) {
-                                existing2.setUrl(url);
-                                changed = true;
-                            }
-                            if (!existing2.getPlaceholder().equals(placeholder)) {
-                                existing2.setPlaceholder(placeholder);
-                                changed = true;
-                            }
-                            if (changed) {
-                                collectionRepo.save(existing2);
-                                totalUpdated++;
-                            }
-                        } else {
-                            // No ID or ID not found → add as new prank
-                            PrankCollection prank = new PrankCollection(
-                                    UUID.randomUUID().toString(),
-                                    container.getContainerId(),
-                                    url,
-                                    placeholder
-                            );
-                            collectionRepo.save(prank);
-                            totalImported++;
-                        }
-                    }
-                }
-
-                // Update the main panel
-                Message ctrlMsg = controlMessages.get(userId);
-                if (ctrlMsg != null) {
-                    ctrlMsg.editMessage(editMainPanel(userId).build()).queue();
-                }
-
-                // Build result message
-                StringBuilder result = new StringBuilder();
-                if (containersCreated > 0) {
-                    result.append("✅ Created **%d** container(s)".formatted(containersCreated));
-                }
-                if (containersMerged > 0) {
-                    if (!result.isEmpty()) result.append(", ");
-                    result.append("🔄 Merged into **%d** existing".formatted(containersMerged));
-                }
-                if (totalImported > 0 || totalUpdated > 0 || (containersCreated == 0 && containersMerged == 0)) {
-                    if (!result.isEmpty()) result.append("\n");
-                    result.append("📥 **%d** added, ✏️ **%d** updated".formatted(totalImported, totalUpdated));
-                }
-                if (totalSkipped > 0) {
-                    result.append(" (%d skipped)".formatted(totalSkipped));
-                }
-
-                hook.editOriginal(result.toString())
-                        .queue(m -> m.delete().queueAfter(10, TimeUnit.SECONDS));
-
-            } catch (Exception e) {
-                ctx.log("error", "Import error: " + e.getMessage());
-                hook.editOriginal("❌ Failed to parse JSON: " + e.getMessage())
-                        .queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
-            }
-        }).exceptionally(e -> {
-            ctx.log("error", "Import download error: " + e.getMessage());
-            hook.editOriginal("❌ Failed to download file: " + e.getMessage())
-                    .queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
-            return null;
-        }));
-    }
 
     // ==================== UTILITY METHODS ====================
 
     private PrankContainer findContainerById(String containerId) {
-        List<PrankContainer> list = containerRepo.query()
-                .where("container_id", containerId)
-                .list();
+        List<PrankContainer> list = containerRepo.query().where("container_id", containerId).list();
         return list.isEmpty() ? null : list.getFirst();
     }
 
     private PrankCollection findPrankById(String prankId) {
-        List<PrankCollection> list = collectionRepo.query()
-                .where("prank_id", prankId)
-                .list();
+        List<PrankCollection> list = collectionRepo.query().where("prank_id", prankId).list();
         return list.isEmpty() ? null : list.getFirst();
     }
 
