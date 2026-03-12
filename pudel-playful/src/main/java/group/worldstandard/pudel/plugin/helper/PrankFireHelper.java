@@ -201,12 +201,22 @@ public class PrankFireHelper {
     }
 
     private MessageCreateBuilder buildPrankReply(String message, PrankCollection prank, PrankContainer container) {
-        Container prankCard = Container.of(
-                TextDisplay.of(message),
-                MediaGallery.of(MediaGalleryItem.fromUrl(prank.getUrl())),
-                Separator.create(false, Separator.Spacing.SMALL),
-                TextDisplay.of("-# 📦 " + container.getName() + " • Used " + container.getUsage() + " times")
-        ).withAccentColor(accentPrank);
+        Container prankCard;
+
+        if(message.isEmpty()){
+            prankCard = Container.of(
+                    MediaGallery.of(MediaGalleryItem.fromUrl(prank.getUrl())),
+                    Separator.create(false, Separator.Spacing.SMALL),
+                    TextDisplay.of("-# 📦 " + container.getName() + " • Used " + container.getUsage() + " times")
+            ).withAccentColor(accentPrank);
+        } else {
+            prankCard = Container.of(
+                    TextDisplay.of(message),
+                    MediaGallery.of(MediaGalleryItem.fromUrl(prank.getUrl())),
+                    Separator.create(false, Separator.Spacing.SMALL),
+                    TextDisplay.of("-# 📦 " + container.getName() + " • Used " + container.getUsage() + " times")
+            ).withAccentColor(accentPrank);
+        }
 
         return new MessageCreateBuilder()
                 .useComponentsV2(true)

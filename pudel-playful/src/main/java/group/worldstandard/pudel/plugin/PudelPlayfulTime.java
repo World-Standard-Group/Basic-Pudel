@@ -69,7 +69,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Plugin(
         name = "Pudel's Playful Time",
-        version = "1.1.1",
+        version = "1.1.2",
         author = "Zazalng",
         description = "Harmless prank image/gif collections with custom messages"
 )
