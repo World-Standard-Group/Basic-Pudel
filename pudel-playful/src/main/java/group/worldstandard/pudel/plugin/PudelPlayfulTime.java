@@ -69,7 +69,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Plugin(
         name = "Pudel's Playful Time",
-        version = "1.1.2",
+        version = "1.1.3",
         author = "Zazalng",
         description = "Harmless prank image/gif collections with custom messages"
 )
@@ -382,7 +382,14 @@ public class PudelPlayfulTime {
 
         event.deferReply(true).queue(hook -> {
             event.getUser().openPrivateChannel().flatMap(
-                    ch -> ch.sendMessage("Please keep this message; it contains a permanent URL for your uploaded file.").addFiles(attachment.getProxy().downloadAsFileUpload(attachment.getFileName()))
+                    ch -> ch.sendMessage("""
+                                    [%s (v%s) - %s]
+                                    Please keep this message. it contains a permanent URL for your uploaded file.
+                                    """
+                            .formatted(ctx.getInfo().getName(),
+                                    ctx.getInfo().getVersion(),
+                                    ctx.getPudel().getUserAgent())
+                    ).addFiles(attachment.getProxy().downloadAsFileUpload(attachment.getFileName()))
             ).queue(m -> {
                 collectionRepo.save(new PrankCollection(UUID.randomUUID().toString(), containerId, m.getAttachments().getFirst().getUrl(), placeholder));
                 Message ctrlMsg = controlMessages.get(userId);

@@ -4,7 +4,7 @@
 **Author:** Zazalng  
 **For:** Pudel API 2.2.0+
 
-Pudel's Role Color is a plugin module for the Pudel Discord Bot that allows users to easily set and manage custom color roles for their profiles. Built using the JDA library, it manages user assignments and role creation dynamically while tracking everything via a database to prevent cluttering the server with unused roles.
+Pudel's Role Color is a plugin module for the Pudel Discord Bot that allows users to easily set and manage custom color roles for their profiles. Built using the JDA library, it manages user assignments and role creation dynamically while tracking everything via a database to prevent cluttering the guild with unused roles.
 
 ---
 
@@ -26,4 +26,5 @@ Remove role color (if parameter was reset)
 
 ---
 
-*Note: 1 Guild may have roles up to 250 (Everything combine as well as @everyone is one of role counting).*
+***Note**: 1 Guild may have roles up to 250 (Everything combine as well as @everyone is one of role counting).* \
+***Note**: This plugin tracks roles via Pudel's database; therefore, roles with identical names created manually will not be recognized by Pudel's tracking system.*

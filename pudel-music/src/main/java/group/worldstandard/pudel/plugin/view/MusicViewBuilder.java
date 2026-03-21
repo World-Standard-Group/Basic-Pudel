@@ -79,6 +79,7 @@ public class MusicViewBuilder {
                             + "\n🔁 Loop: " + loopIcon + "\u2003\u2003🔀 Shuffle: " + shuffleIcon
             ));
 
+            children.add(TextDisplay.of("-# Last Action: %s".formatted(session.lastAction)));
             children.add(Separator.create(true, Separator.Spacing.SMALL));
 
             boolean isPaused = mgr.player.isPaused();

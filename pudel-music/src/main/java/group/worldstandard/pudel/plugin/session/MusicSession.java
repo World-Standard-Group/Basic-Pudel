@@ -17,6 +17,7 @@ public class MusicSession {
     public InteractionHook tempHook; // Hook for temp message lifecycle
     public View view = View.MAIN;
     public int page = 0;
+    public String lastAction = "Opened Music Box";
 
     public MusicSession(long userId, long guildId) {
         this.userId = userId;

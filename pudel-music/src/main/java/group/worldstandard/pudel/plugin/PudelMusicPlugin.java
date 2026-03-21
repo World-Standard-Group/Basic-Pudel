@@ -78,7 +78,7 @@ import java.util.concurrent.TimeUnit;
  */
 @Plugin(
         name = "Pudel's Music",
-        version = "3.0.1",
+        version = "3.1.0",
         author = "Zazalng",
         description = "Unified Music Box with Components v2"
 )
@@ -259,6 +259,7 @@ public class PudelMusicPlugin {
             }
         }
 
+        session.lastAction = "Opened Music Box";
         event.reply(
                 new MessageCreateBuilder()
                         .useComponentsV2(true)
@@ -294,6 +295,7 @@ public class PudelMusicPlugin {
             playerManager.loadItemOrdered(mgr, searchPrefix + query, new AudioLoadResultHandler() {
                 @Override public void trackLoaded(AudioTrack track) {
                     mgr.scheduler.queue(track, userId);
+                    session.lastAction = "🎵 Queued: " + truncate(track.getInfo().title, 40);
                     updateSessionMessage(session, mgr);
                 }
 
@@ -319,6 +321,7 @@ public class PudelMusicPlugin {
                         for (AudioTrack track : playlist.getTracks()) {
                             mgr.scheduler.queue(track, userId);
                         }
+                        session.lastAction = "📋 Queued playlist: " + truncate(playlist.getName(), 35) + " (" + playlist.getTracks().size() + " tracks)";
                         updateSessionMessage(session, mgr);
                     }
                 }
@@ -392,23 +395,48 @@ public class PudelMusicPlugin {
 
         switch (id) {
             // Playback Controls
-            case "pause" -> { mgr.player.setPaused(!mgr.player.isPaused()); editToMainView(event, mgr, session); }
-            case "skip" -> { mgr.scheduler.nextTrack(); editToMainView(event, mgr, session); }
-            case "loop" -> { mgr.scheduler.cycleLoopMode(); editToMainView(event, mgr, session); }
-            case "shuffle" -> { mgr.scheduler.toggleShuffle(); editToMainView(event, mgr, session); }
+            case "pause" -> {
+                boolean nowPaused = !mgr.player.isPaused();
+                mgr.player.setPaused(nowPaused);
+                session.lastAction = nowPaused ? "⏸ Paused playback" : "▶ Resumed playback";
+                editToMainView(event, mgr, session);
+            }
+            case "skip" -> {
+                AudioTrack skipped = mgr.player.getPlayingTrack();
+                mgr.scheduler.nextTrack();
+                session.lastAction = skipped != null
+                        ? "⏭ Skipped: " + truncate(skipped.getInfo().title, 40)
+                        : "⏭ Skipped";
+                editToMainView(event, mgr, session);
+            }
+            case "loop" -> {
+                mgr.scheduler.cycleLoopMode();
+                String mode = switch (mgr.scheduler.loopMode) {
+                    case 1 -> "🔁 Loop: Queue";
+                    case 2 -> "🔂 Loop: Track";
+                    default -> "➡ Loop: Off";
+                };
+                session.lastAction = mode;
+                editToMainView(event, mgr, session);
+            }
+            case "shuffle" -> {
+                mgr.scheduler.toggleShuffle();
+                session.lastAction = mgr.scheduler.shuffle ? "🔀 Shuffle: On" : "➡ Shuffle: Off";
+                editToMainView(event, mgr, session);
+            }
 
             // Navigation
             case "queuesong" -> showQueueSongModal(event);
             case "queueview" -> { session.view = View.QUEUE; session.page = 0; editToQueueView(event, session); }
             case "history" -> { session.view = View.HISTORY; session.page = 0; editToHistoryView(event, session); }
-            case "back" -> { session.view = View.MAIN; session.page = 0; editToMainView(event, mgr, session); }
+            case "back" -> { session.view = View.MAIN; session.page = 0; session.lastAction = "🔙 Back to player"; editToMainView(event, mgr, session); }
 
             // Queue View Controls
             case "qprev" -> { session.page = Math.max(0, session.page - 1); editToQueueView(event, session); }
             case "qnext" -> { session.page++; editToQueueView(event, session); }
             case "remove" -> showRemoveMenu(event, session);
-            case "reindex" -> { reindexQueue(session); editToQueueView(event, session); }
-            case "clearqueue" -> { clearGuildQueue(session.guildId); session.page = 0; editToQueueView(event, session); }
+            case "reindex" -> { reindexQueue(session); session.lastAction = "🔀 Queue shuffled"; editToQueueView(event, session); }
+            case "clearqueue" -> { clearGuildQueue(session.guildId); session.page = 0; session.lastAction = "🧹 Queue cleared"; editToQueueView(event, session); }
 
             // History View Controls
             case "hprev" -> { session.page = Math.max(0, session.page - 1); editToHistoryView(event, session); }
@@ -419,6 +447,7 @@ public class PudelMusicPlugin {
                 Member member = event.getMember();
                 if (member != null && member.getVoiceState() != null && member.getVoiceState().inAudioChannel()) {
                     guild.getAudioManager().openAudioConnection(member.getVoiceState().getChannel());
+                    session.lastAction = "🔊 Joined voice channel";
                     editToMainView(event, mgr, session);
                 } else {
                     event.reply("❌ You must be in a voice channel!")
@@ -498,6 +527,7 @@ public class PudelMusicPlugin {
                 playerManager.loadItemOrdered(mgr, finalSearchPrefix + query, new AudioLoadResultHandler() {
                     @Override public void trackLoaded(AudioTrack track) {
                         mgr.scheduler.queue(track, userId);
+                        session.lastAction = "🎵 Queued: " + truncate(track.getInfo().title, 40);
                         session.cleanupTemp();
                         updateSessionMessage(session, mgr);
                     }
@@ -509,29 +539,46 @@ public class PudelMusicPlugin {
                             for (AudioTrack track : playlist.getTracks()) {
                                 mgr.scheduler.queue(track, userId);
                             }
+                            session.lastAction = "📋 Queued playlist: " + truncate(playlist.getName(), 35) + " (" + playlist.getTracks().size() + " tracks)";
                             session.cleanupTemp();
                             updateSessionMessage(session, mgr);
                         }
                     }
 
                     @Override public void noMatches() {
-                        if (session.tempHook != null) {
-                            session.tempHook.editOriginal("❌ No matches found!").queue(
-                                    _ -> session.tempHook.deleteOriginal().queueAfter(5, TimeUnit.SECONDS)
-                            );
-                        }
+                        var hookRef = session.tempHook;
                         session.tempMessage = null;
                         session.tempHook = null;
+                        if (hookRef != null) {
+                            hookRef.editOriginal(
+                                    new MessageEditBuilder().useComponentsV2(true)
+                                            .setComponents(Container.of(
+                                                    TextDisplay.of("# ❌ No Results"),
+                                                    Separator.create(false, Separator.Spacing.SMALL),
+                                                    TextDisplay.of("_No matches found!_")
+                                            ).withAccentColor(ACCENT_IDLE)).build()
+                            ).queue(
+                                    _ -> hookRef.deleteOriginal().queueAfter(5, TimeUnit.SECONDS)
+                            );
+                        }
                     }
 
                     @Override public void loadFailed(FriendlyException exception) {
-                        if (session.tempHook != null) {
-                            session.tempHook.editOriginal("❌ Failed to load: " + exception.getMessage()).queue(
-                                    _ -> session.tempHook.deleteOriginal().queueAfter(5, TimeUnit.SECONDS)
-                            );
-                        }
+                        var hookRef = session.tempHook;
                         session.tempMessage = null;
                         session.tempHook = null;
+                        if (hookRef != null) {
+                            hookRef.editOriginal(
+                                    new MessageEditBuilder().useComponentsV2(true)
+                                            .setComponents(Container.of(
+                                                    TextDisplay.of("# ❌ Load Failed"),
+                                                    Separator.create(false, Separator.Spacing.SMALL),
+                                                    TextDisplay.of("_" + exception.getMessage() + "_")
+                                            ).withAccentColor(ACCENT_IDLE)).build()
+                            ).queue(
+                                    _ -> hookRef.deleteOriginal().queueAfter(5, TimeUnit.SECONDS)
+                            );
+                        }
                     }
                 });
             });
@@ -572,6 +619,7 @@ public class PudelMusicPlugin {
             session.tempMessage = null;
             session.tempHook = null;
 
+            session.lastAction = "🎵 Queued: " + truncate(selected.getInfo().title, 40);
             session.view = View.MAIN;
             updateSessionMessage(session, mgr);
             return;
@@ -582,7 +630,9 @@ public class PudelMusicPlugin {
             long dbId = Long.parseLong(dbIdStr);
 
             Optional<QueueEntry> entryOpt = queueRepo.findById(dbId);
+            String removedTitle = "unknown";
             if (entryOpt.isPresent() && entryOpt.get().getGuildId() == session.guildId) {
+                removedTitle = entryOpt.get().getTitle();
                 queueRepo.deleteById(dbId);
             }
 
@@ -590,6 +640,7 @@ public class PudelMusicPlugin {
             session.tempMessage = null;
             session.tempHook = null;
 
+            session.lastAction = "🗑 Removed: " + truncate(removedTitle, 40);
             session.view = View.QUEUE;
             if (session.message != null) {
                 session.message.editMessage(
@@ -776,5 +827,10 @@ public class PudelMusicPlugin {
     private String getModalValue(ModalInteractionEvent event, String id) {
         var v = event.getValue(id);
         return v != null ? v.getAsString() : "";
+    }
+
+    private static String truncate(String text, int maxLength) {
+        if (text == null) return "Unknown";
+        return text.length() > maxLength ? text.substring(0, maxLength - 3) + "..." : text;
     }
 }

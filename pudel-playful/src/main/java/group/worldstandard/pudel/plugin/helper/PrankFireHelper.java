@@ -196,8 +196,8 @@ public class PrankFireHelper {
         String invokerMention = invoker.getAsMention();
         String targetMention = target != null ? target.getAsMention() : "";
         return prank.getPlaceholder()
-                .replace("%m", invokerMention)
-                .replace("%t", targetMention);
+                .replaceAll("%m", invokerMention)
+                .replaceAll("%t", targetMention);
     }
 
     private MessageCreateBuilder buildPrankReply(String message, PrankCollection prank, PrankContainer container) {

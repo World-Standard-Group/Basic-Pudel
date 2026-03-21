@@ -72,4 +72,4 @@ You can share your containers with friends by exporting them from the Control Pa
 
 ```
 
-*Note: When importing, if a container with the same name already exists, the plugin will merge the new pranks into it.*
+**Note:** During import, if a container with the same name already exists, the plugin will merge the new pranks into it. Additionally, importing a prank without a specified `id` will add it to that existing container.
