@@ -18,6 +18,7 @@
         <module>pudel-rolecolor</module>
         <module>pudel-playful</module>
         <module>pudel-componentv2</module>
+        <module>pudel-categorizement</module>
     </modules>
 
     <licenses>
@@ -60,24 +61,26 @@
         <log.version>2.0.17</log.version>
     </properties>
 
-    <dependencies>
-        <dependency>
-            <groupId>net.dv8tion</groupId>
-            <artifactId>JDA</artifactId>
-            <version>${jda.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>group.worldstandard</groupId>
-            <artifactId>pudel-api</artifactId>
-            <version>${pudel.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>${log.version}</version>
-            <scope>provided</scope>
-        </dependency>
-    </dependencies>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>net.dv8tion</groupId>
+                <artifactId>JDA</artifactId>
+                <version>${jda.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>group.worldstandard</groupId>
+                <artifactId>pudel-api</artifactId>
+                <version>${pudel.version}</version>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${log.version}</version>
+                <scope>provided</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 </project>
