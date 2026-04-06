@@ -153,13 +153,13 @@ public class PudelCategorizing {
     private PluginRepository<CategorySetting> settingRepo;
     private PluginRepository<PrivilegeRole> privilegeRepo;
 
-    /** Ephemeral control panel message per user (userId โ’ Message). */
+    /** Ephemeral control panel message per user (userId -> Message). */
     private final Map<String, Message> controlMessages = new ConcurrentHashMap<>();
     /** Permission cursor index per user. */
     private final Map<String, Integer> permCursor = new ConcurrentHashMap<>();
     /** Permission target type per user: "manager" or "role". */
     private final Map<String, String> permTarget = new ConcurrentHashMap<>();
-    /** Temporary permission state per user: permEnumName โ’ "ALLOW"/"INHERIT"/"DENY". */
+    /** Temporary permission state per user: permEnumName -> "ALLOW"/"INHERIT"/"DENY". */
     private final Map<String, LinkedHashMap<String, String>> tempPermState = new ConcurrentHashMap<>();
 
     // ==================== LIFECYCLE ====================
@@ -812,7 +812,7 @@ public class PudelCategorizing {
                         TextDisplay.of("Select a role to remove from the privilege list:"),
                         Separator.create(true, Separator.Spacing.SMALL),
                         ActionRow.of(menuBuilder.build()),
-                        ActionRow.of(Button.secondary(btnPrefix + "back_privilege", "โฌ…๏ธ Back"))
+                        ActionRow.of(Button.secondary(btnPrefix + "back_privilege", "⬅️ Back"))
                 ).withAccentColor(ACCENT_DANGER)
         );
     }

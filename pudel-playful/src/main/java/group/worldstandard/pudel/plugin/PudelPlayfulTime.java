@@ -324,9 +324,12 @@ public class PudelPlayfulTime {
                         TextDisplay.of("### ➕ Add Prank"),
                         TextDisplay.of("Choose how to provide the image/GIF:"),
                         Separator.create(true, Separator.Spacing.SMALL),
-                        ActionRow.of(Button.success(btnPrefix + "add-prank-upload", "๐“ค Upload File"), Button.primary(btnPrefix + "add-prank-url", "๐”— Paste URL")),
+                        ActionRow.of(
+                                Button.success(btnPrefix + "add-prank-upload", "📤 Upload File"),
+                                Button.primary(btnPrefix + "add-prank-url", "🔗 Paste URL")
+                        ),
                         Separator.create(true, Separator.Spacing.SMALL),
-                        ActionRow.of(Button.secondary(btnPrefix + "back-view", "โฌ…๏ธ Back"))
+                        ActionRow.of(Button.secondary(btnPrefix + "back-view", "⬅️ Back"))
                 ).withAccentColor(ACCENT_VIEW)).build()
         ).queue();
     }
@@ -337,7 +340,7 @@ public class PudelPlayfulTime {
             return;
         }
 
-        event.replyModal(Modal.create(modalPrefix + "add-prank-upload", "Add Prank โ€” Upload")
+        event.replyModal(Modal.create(modalPrefix + "add-prank-upload", "Add Prank — Upload")
                 .addComponents(
                         Label.of("Image/GIF File", AttachmentUpload.create("upload").setRequiredRange(1, 1).setRequired(true).build()),
                         Label.of("Message Template (%m = you, %t = target)", TextInput.create("placeholder", TextInputStyle.PARAGRAPH)
