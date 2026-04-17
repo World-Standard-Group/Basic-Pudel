@@ -444,8 +444,14 @@ public class PudelPlayfulTime {
 
         event.replyModal(Modal.create(modalPrefix + "edit-prank:" + prankId, "Edit Prank")
                 .addComponents(
-                        TextDisplay.of(prank.getUrl()),
-                        Label.of("Image/GIF URL", TextInput.create("url", TextInputStyle.SHORT).setPlaceholder("Direct image/gif URL").setValue(prank.getUrl()).setRequired(true).build()),
+                        TextDisplay.of("%s\n*Discord's markdown does not support Image element*".formatted(prank.getUrl())),
+                        Label.of("Image/GIF URL",
+                                TextInput.create("url", TextInputStyle.SHORT)
+                                        .setPlaceholder("Direct image/gif URL")
+                                        .setValue(prank.getUrl())
+                                        .setRequired(true)
+                                        .build()
+                        ),
                         Label.of(
                                 "Message Template (%m = you, %t = target)",
                                 TextInput.create("placeholder", TextInputStyle.PARAGRAPH)

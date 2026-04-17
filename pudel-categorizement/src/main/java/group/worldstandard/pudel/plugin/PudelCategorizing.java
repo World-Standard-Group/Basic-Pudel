@@ -25,7 +25,7 @@ import group.worldstandard.pudel.api.database.PluginDatabaseManager;
 import group.worldstandard.pudel.api.database.PluginRepository;
 import group.worldstandard.pudel.api.database.TableSchema;
 import group.worldstandard.pudel.plugin.entity.CategoryEntry;
-import group.worldstandard.pudel.plugin.entity.CategorySetting;
+import group.worldstandard.pudel.plugin.entity.PermissionProfile;
 import group.worldstandard.pudel.plugin.entity.PrivilegeRole;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.checkbox.Checkbox;
@@ -77,7 +77,7 @@ import java.util.stream.Collectors;
 @Plugin(
         name = "Pudel's Category Management",
         author = "Zazalng",
-        version = "1.0.0-rc1",
+        version = "2.0.0-rc1",
         description = "Manages Discord categories and lets administrators assign category managers."
 )
 public class PudelCategorizing {
@@ -150,15 +150,15 @@ public class PudelCategorizing {
     // ==================== STATE ====================
     private PluginContext context;
     private PluginRepository<CategoryEntry> categoryRepo;
-    private PluginRepository<CategorySetting> settingRepo;
+    private PluginRepository<PermissionProfile> profileRepo;
     private PluginRepository<PrivilegeRole> privilegeRepo;
 
     /** Ephemeral control panel message per user (userId -> Message). */
     private final Map<String, Message> controlMessages = new ConcurrentHashMap<>();
     /** Permission cursor index per user. */
     private final Map<String, Integer> permCursor = new ConcurrentHashMap<>();
-    /** Permission target type per user: "manager" or "role". */
-    private final Map<String, String> permTarget = new ConcurrentHashMap<>();
+    /** Currently editing profile name per user. */
+    private final Map<String, String> editingProfileName = new ConcurrentHashMap<>();
     /** Temporary permission state per user: permEnumName -> "ALLOW"/"INHERIT"/"DENY". */
     private final Map<String, LinkedHashMap<String, String>> tempPermState = new ConcurrentHashMap<>();
 
@@ -184,7 +184,7 @@ public class PudelCategorizing {
             });
             controlMessages.clear();
             permCursor.clear();
-            permTarget.clear();
+            editingProfileName.clear();
             tempPermState.clear();
             ctx.log("info", "%s (v%s) graceful shutdown on '%s'".formatted(
                     ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent()));
@@ -203,20 +203,21 @@ public class PudelCategorizing {
                 .column("guild_id", ColumnType.TEXT, false)
                 .column("category_id", ColumnType.TEXT, false)
                 .column("manager_id", ColumnType.TEXT, true)
+                .column("manager_role_profile", ColumnType.TEXT, true)
                 .column("default_role", ColumnType.TEXT, true)
+                .column("default_role_profile", ColumnType.TEXT, true)
                 .uniqueIndex("category_id")
                 .build();
         context.log("info", "Creating table '%s': %s".formatted(categorySchema.getTableName(), db.createTable(categorySchema)));
 
-        TableSchema settingSchema = TableSchema.builder("setting")
+        TableSchema profileSchema = TableSchema.builder("permission_profile")
                 .column("guild_id", ColumnType.TEXT, false)
-                .column("manager_allow", ColumnType.TEXT, false, "''")
-                .column("manager_deny", ColumnType.TEXT, false, "''")
-                .column("role_allow", ColumnType.TEXT, false, "''")
-                .column("role_deny", ColumnType.TEXT, false, "''")
-                .uniqueIndex("guild_id")
+                .column("name", ColumnType.TEXT, false)
+                .column("allow", ColumnType.TEXT, false, "''")
+                .column("deny", ColumnType.TEXT, false, "''")
+                .index("guild_id")
                 .build();
-        context.log("info", "Creating table '%s': %s".formatted(settingSchema.getTableName(), db.createTable(settingSchema)));
+        context.log("info", "Creating table '%s': %s".formatted(profileSchema.getTableName(), db.createTable(profileSchema)));
 
         TableSchema privilegeSchema = TableSchema.builder("privilege_role")
                 .column("guild_id", ColumnType.TEXT, false)
@@ -226,12 +227,19 @@ public class PudelCategorizing {
         context.log("info", "Creating table '%s': %s".formatted(privilegeSchema.getTableName(), db.createTable(privilegeSchema)));
 
         this.categoryRepo = db.getRepository("category", CategoryEntry.class);
-        this.settingRepo = db.getRepository("setting", CategorySetting.class);
+        this.profileRepo = db.getRepository("permission_profile", PermissionProfile.class);
         this.privilegeRepo = db.getRepository("privilege_role", PrivilegeRole.class);
     }
 
     // ==================== SLASH COMMAND ====================
 
+    /**
+     * Opens the control panel for managing category channels.
+     * This method handles the slash command interaction, performs necessary cleanup of previous sessions,
+     * and displays the main control panel interface to the user.
+     *
+     * @param event the slash command interaction event triggered by the user
+     */
     @SlashCommand(
             name = "categorizement",
             description = "Open Control Panel for management category channel",
@@ -260,7 +268,7 @@ public class PudelCategorizing {
 
         // Clean session state
         permCursor.remove(userId);
-        permTarget.remove(userId);
+        editingProfileName.remove(userId);
         tempPermState.remove(userId);
 
         event.reply(
@@ -273,6 +281,14 @@ public class PudelCategorizing {
 
     // ==================== BUTTON HANDLER ====================
 
+    /**
+     * Handles button interactions for the bot's panel system.
+     * Processes different button clicks and performs corresponding actions based on the button ID.
+     * Validates user permissions before executing privileged operations.
+     * Manages navigation between different panels and handles permission settings.
+     *
+     * @param event the ButtonInteractionEvent containing interaction data
+     */
     @ButtonHandler(BTN_HANDLER)
     public void handleButton(ButtonInteractionEvent event) {
         Guild guild = event.getGuild();
@@ -288,28 +304,25 @@ public class PudelCategorizing {
             // ── Main Panel ──
             case "create" -> {
                 if (!hasAuth) { replyNoPermission(event); return; }
-                showCreateModal(event);
+                showCreateModal(event, guildId);
             }
             case "import" -> {
                 if (!hasAuth) { replyNoPermission(event); return; }
-                showImportModal(event);
+                showImportModal(event, guildId);
             }
             case "setting", "back_setting" -> event.editMessage(buildSettingPanel(guild, member).build()).queue();
             case "view", "back_view" -> event.editMessage(buildViewCategoryPanel(guild).build()).queue();
             case "unlink" -> event.editMessage(buildUnlinkPanel(guild, member).build()).queue();
 
-            // ── Setting Panel ──
-            case "perm_manager" -> {
-                permTarget.put(userId, "manager");
-                permCursor.put(userId, 0);
-                loadPermStateFromDb(userId, guildId, "manager");
-                event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
+            // ── Setting Panel (Permission Profiles) ──
+            case "profile_view" -> event.editMessage(buildViewProfileSelectPanel(guildId).build()).queue();
+            case "profile_create" -> {
+                if (!hasAuth) { replyNoPermission(event); return; }
+                showCreateProfileModal(event);
             }
-            case "perm_role" -> {
-                permTarget.put(userId, "role");
-                permCursor.put(userId, 0);
-                loadPermStateFromDb(userId, guildId, "role");
-                event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
+            case "profile_remove" -> {
+                if (!hasAuth) { replyNoPermission(event); return; }
+                event.editMessage(buildRemoveProfileSelectPanel(guildId).build()).queue();
             }
             case "privilege", "back_privilege" -> event.editMessage(buildPrivilegePanel(guild, hasAuth).build()).queue();
 
@@ -324,21 +337,37 @@ public class PudelCategorizing {
                 permCursor.put(userId, Math.min(MANAGEABLE_PERMISSIONS.size() - 1, cur + 1));
                 event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
             }
-            case "swap" -> {
+            case "allow" -> {
                 if (!hasAuth) { replyNoPermission(event); return; }
-                swapCurrentPermState(userId);
+                setCurrentPermState(userId, "ALLOW");
+                event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
+            }
+            case "inherit" -> {
+                if (!hasAuth) { replyNoPermission(event); return; }
+                setCurrentPermState(userId, "INHERIT");
+                event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
+            }
+            case "deny" -> {
+                if (!hasAuth) { replyNoPermission(event); return; }
+                setCurrentPermState(userId, "DENY");
                 event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
             }
             case "confirm" -> {
                 if (!hasAuth) { replyNoPermission(event); return; }
-                savePermStateToDb(userId, guildId);
+                saveProfilePermState(userId, guildId);
                 event.editMessage(buildSettingPanel(guild, member).build()).queue();
             }
             case "perm_reset" -> {
                 if (!hasAuth) { replyNoPermission(event); return; }
-                String target = permTarget.getOrDefault(userId, "manager");
-                loadPermStateFromDb(userId, guildId, target);
+                String profileName = editingProfileName.get(userId);
+                if (profileName != null) loadProfilePermState(userId, guildId, profileName);
                 event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
+            }
+            case "perm_back" -> {
+                permCursor.remove(userId);
+                editingProfileName.remove(userId);
+                tempPermState.remove(userId);
+                event.editMessage(buildSettingPanel(guild, member).build()).queue();
             }
 
             // ── Privilege Panel ──
@@ -354,7 +383,7 @@ public class PudelCategorizing {
             // ── Navigation ──
             case "back_main" -> {
                 permCursor.remove(userId);
-                permTarget.remove(userId);
+                editingProfileName.remove(userId);
                 tempPermState.remove(userId);
                 event.editMessage(editMainPanel(guild, member).build()).queue();
             }
@@ -363,6 +392,14 @@ public class PudelCategorizing {
 
     // ==================== MODAL HANDLER ====================
 
+    /**
+     * Handles modal interactions for the bot's panel system.
+     * Processes different modal submissions based on the modal ID and performs corresponding actions.
+     * Validates guild and member information before processing.
+     * Catches and handles exceptions that may occur during modal processing.
+     *
+     * @param event the ModalInteractionEvent containing interaction data
+     */
     @ModalHandler(MODAL_HANDLER)
     public void handleModal(ModalInteractionEvent event) {
         Guild guild = event.getGuild();
@@ -376,6 +413,7 @@ public class PudelCategorizing {
                 case "create" -> handleCreateModal(event, guild, member);
                 case "import" -> handleImportModal(event, guild, member);
                 case "priv_add" -> handleAddPrivilegeModal(event, guild, member);
+                case "profile_create" -> handleCreateProfileModal(event, guild, member);
             }
         } catch (Exception e) {
             context.log("error", "Modal error: " + e.getMessage(), e);
@@ -386,6 +424,14 @@ public class PudelCategorizing {
 
     // ==================== SELECT MENU HANDLER ====================
 
+    /**
+     * Handles selection menu interactions for the bot's panel system.
+     * Processes different select menu options based on the menu ID and performs corresponding actions.
+     * Validates guild and member information before processing.
+     * Supports viewing category details, unlinking categories, and removing privileges.
+     *
+     * @param event the StringSelectInteractionEvent containing interaction data
+     */
     @SelectMenuHandler(MENU_HANDLER)
     public void handleSelectMenu(StringSelectInteractionEvent event) {
         Guild guild = event.getGuild();
@@ -394,17 +440,34 @@ public class PudelCategorizing {
 
         String menuId = event.getComponentId().substring(menuPrefix.length());
         String selected = event.getValues().getFirst();
+        String userId = member.getId();
+        String guildId = guild.getId();
+        boolean hasAuth = hasPermissionOrPrivilege(member, guildId);
 
         switch (menuId) {
             case "view_cat" -> event.editMessage(buildCategoryDetailPanel(guild, selected).build()).queue();
             case "unlink_cat" -> handleUnlinkCategory(event, guild, member, selected);
             case "priv_rm" -> handleRemovePrivilege(event, guild, member, selected);
+            case "profile_view" -> {
+                editingProfileName.put(userId, selected);
+                permCursor.put(userId, 0);
+                loadProfilePermState(userId, guildId, selected);
+                event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
+            }
+            case "profile_rm" -> {
+                List<PermissionProfile> profiles = profileRepo.query()
+                        .where("guild_id", guildId).where("name", selected).list();
+                if (!profiles.isEmpty()) {
+                    profileRepo.deleteById(profiles.getFirst().getId());
+                }
+                event.editMessage(buildSettingPanel(guild, member).build()).queue();
+            }
         }
     }
 
     // ==================== MODAL SHOW METHODS ====================
 
-    private void showCreateModal(ButtonInteractionEvent event) {
+    private void showCreateModal(ButtonInteractionEvent event, String guildId) {
         TextInput nameInput = TextInput.create("name", TextInputStyle.SHORT)
                 .setPlaceholder("e.g. Staff Area, Private Channels")
                 .setMinLength(1).setMaxLength(100).setRequired(true).build();
@@ -415,17 +478,36 @@ public class PudelCategorizing {
         EntitySelectMenu roleMenu = EntitySelectMenu.create("default_role", EntitySelectMenu.SelectTarget.ROLE)
                 .setRequiredRange(0, 1).setRequired(false).build();
 
-        event.replyModal(Modal.create(modalPrefix + "create", "Create New Category")
+        List<PermissionProfile> profiles = profileRepo.query().where("guild_id", guildId).list();
+        Modal.Builder modalBuilder = Modal.create(modalPrefix + "create", "Create New Category")
                 .addComponents(
                         Label.of("Category Name *", nameInput),
                         Label.of("Manager User (optional)", managerMenu),
-                        Label.of("Default Role (optional)", roleMenu),
-                        Label.of("Control this category via Pudel?", Checkbox.of("controlBy"))
-                ).build()
-        ).queue();
+                        Label.of("Default Role (optional)", roleMenu)
+                );
+
+        if (!profiles.isEmpty()) {
+            StringSelectMenu.Builder mgrProfileMenu = StringSelectMenu.create("manager_profile")
+                    .setPlaceholder("Select manager permission profile")
+                    .setRequiredRange(0, 1);
+            StringSelectMenu.Builder roleProfileMenu = StringSelectMenu.create("role_profile")
+                    .setPlaceholder("Select default role permission profile")
+                    .setRequiredRange(0, 1);
+            for (PermissionProfile p : profiles) {
+                mgrProfileMenu.addOption(p.getName(), p.getName());
+                roleProfileMenu.addOption(p.getName(), p.getName());
+            }
+            modalBuilder.addComponents(
+                    Label.of("Manager Role Profile (optional)", mgrProfileMenu.build()),
+                    Label.of("Default Role Profile (optional)", roleProfileMenu.build())
+            );
+        }
+
+        modalBuilder.addComponents(Label.of("Control this category via Pudel?", Checkbox.of("controlBy")));
+        event.replyModal(modalBuilder.build()).queue();
     }
 
-    private void showImportModal(ButtonInteractionEvent event) {
+    private void showImportModal(ButtonInteractionEvent event, String guildId) {
         EntitySelectMenu categoryMenu = EntitySelectMenu.create("category", EntitySelectMenu.SelectTarget.CHANNEL)
                 .setChannelTypes(ChannelType.CATEGORY)
                 .setRequiredRange(1, 1).build();
@@ -442,14 +524,33 @@ public class PudelCategorizing {
                 .setRequired(true)
                 .build();
 
-        event.replyModal(Modal.create(modalPrefix + "import", "Import Existing Category")
+        Modal.Builder modalBuilder = Modal.create(modalPrefix + "import", "Import Existing Category")
                 .addComponents(
                         Label.of("Category to Import *", categoryMenu),
                         Label.of("Manager User (optional)", managerMenu),
-                        Label.of("Default Role (optional)", roleMenu),
-                        Label.of("Acknowledged", ackGroup)
-                ).build()
-        ).queue();
+                        Label.of("Default Role (optional)", roleMenu)
+                );
+
+        List<PermissionProfile> profiles = profileRepo.query().where("guild_id", guildId).list();
+        if (!profiles.isEmpty()) {
+            StringSelectMenu.Builder mgrProfileMenu = StringSelectMenu.create("manager_profile")
+                    .setPlaceholder("Select manager permission profile")
+                    .setRequiredRange(0, 1);
+            StringSelectMenu.Builder roleProfileMenu = StringSelectMenu.create("role_profile")
+                    .setPlaceholder("Select default role permission profile")
+                    .setRequiredRange(0, 1);
+            for (PermissionProfile p : profiles) {
+                mgrProfileMenu.addOption(p.getName(), p.getName());
+                roleProfileMenu.addOption(p.getName(), p.getName());
+            }
+            modalBuilder.addComponents(
+                    Label.of("Manager Role Profile (optional)", mgrProfileMenu.build()),
+                    Label.of("Default Role Profile (optional)", roleProfileMenu.build())
+            );
+        }
+
+        modalBuilder.addComponents(Label.of("Acknowledged", ackGroup));
+        event.replyModal(modalBuilder.build()).queue();
     }
 
     private void showAddPrivilegeModal(ButtonInteractionEvent event) {
@@ -461,12 +562,24 @@ public class PudelCategorizing {
         ).queue();
     }
 
+    private void showCreateProfileModal(ButtonInteractionEvent event) {
+        TextInput nameInput = TextInput.create("profile_name", TextInputStyle.SHORT)
+                .setPlaceholder("e.g. Manager Default, Read Only")
+                .setMinLength(1).setMaxLength(50).setRequired(true).build();
+
+        event.replyModal(Modal.create(modalPrefix + "profile_create", "Create Permission Profile")
+                .addComponents(Label.of("Profile Name", nameInput)).build()
+        ).queue();
+    }
+
     // ==================== MODAL HANDLE METHODS ====================
 
     private void handleCreateModal(ModalInteractionEvent event, Guild guild, Member member) {
         String name = getModalString(event, "name").trim();
         String managerId = getModalFirstId(event, "manager");
         String roleId = getModalFirstId(event, "default_role");
+        String managerProfileName = getModalFirstId(event, "manager_profile");
+        String roleProfileName = getModalFirstId(event, "role_profile");
         boolean controlPudel = getModalBoolean(event, "controlBy");
         String guildId = guild.getId();
 
@@ -476,14 +589,15 @@ public class PudelCategorizing {
             return;
         }
 
-        CategorySetting settings = getOrCreateSetting(guildId);
+        PermissionProfile managerProfile = findProfile(guildId, managerProfileName);
+        PermissionProfile roleProfile = findProfile(guildId, roleProfileName);
 
         event.deferReply(true).queue(hook -> {
             guild.createCategory(name).queue(category -> {
-                applyPermissions(category, guild, managerId, roleId, settings);
+                applyPermissions(category, guild, managerId, roleId, managerProfile, roleProfile);
 
                 if (controlPudel) {
-                    categoryRepo.save(new CategoryEntry(null, guildId, category.getId(), managerId, roleId));
+                    categoryRepo.save(new CategoryEntry(null, guildId, category.getId(), managerId, managerProfileName, roleId, roleProfileName));
                 }
 
                 hook.editOriginal("✅ Category **" + name + "** created!" +
@@ -500,6 +614,8 @@ public class PudelCategorizing {
         String categoryId = getModalFirstId(event, "category");
         String managerId = getModalFirstId(event, "manager");
         String roleId = getModalFirstId(event, "default_role");
+        String managerProfileName = getModalFirstId(event, "manager_profile");
+        String roleProfileName = getModalFirstId(event, "role_profile");
         List<String> ackValues = getModalIdList(event, "acknowledged");
         boolean acknowledged = ackValues.contains("ack");
         String guildId = guild.getId();
@@ -532,10 +648,11 @@ public class PudelCategorizing {
             return;
         }
 
-        CategorySetting settings = getOrCreateSetting(guildId);
+        PermissionProfile managerProfile = findProfile(guildId, managerProfileName);
+        PermissionProfile roleProfile = findProfile(guildId, roleProfileName);
 
         event.deferReply(true).queue(hook -> {
-            applyPermissions(category, guild, managerId, roleId, settings);
+            applyPermissions(category, guild, managerId, roleId, managerProfile, roleProfile);
 
             // Sync child channels to updated category permissions
             if (hasManagerOrRole) {
@@ -546,7 +663,7 @@ public class PudelCategorizing {
                 }
             }
 
-            categoryRepo.save(new CategoryEntry(null, guildId, categoryId, managerId, roleId));
+            categoryRepo.save(new CategoryEntry(null, guildId, categoryId, managerId, managerProfileName, roleId, roleProfileName));
 
             hook.editOriginal("✅ Category **" + category.getName() + "** imported and tracked!")
                     .queue(m -> m.delete().queueAfter(5, TimeUnit.SECONDS));
@@ -585,6 +702,35 @@ public class PudelCategorizing {
         if (msg != null) {
             boolean hasAuth = member.hasPermission(Permission.MANAGE_CHANNEL);
             msg.editMessage(buildPrivilegePanel(guild, hasAuth).build()).queue(null, _ -> {});
+        }
+    }
+
+    private void handleCreateProfileModal(ModalInteractionEvent event, Guild guild, Member member) {
+        String profileName = getModalString(event, "profile_name").trim();
+        String guildId = guild.getId();
+
+        if (profileName.isEmpty()) {
+            event.reply("❌ Profile name cannot be empty!").setEphemeral(true)
+                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            return;
+        }
+
+        // Check duplicate
+        if (!profileRepo.query().where("guild_id", guildId).where("name", profileName).list().isEmpty()) {
+            event.reply("❌ A profile with name **" + profileName + "** already exists!").setEphemeral(true)
+                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            return;
+        }
+
+        profileRepo.save(new PermissionProfile(null, guildId, profileName, "", ""));
+
+        event.reply("✅ Profile **" + profileName + "** created! Use **View Profile** to edit its permissions.")
+                .setEphemeral(true).queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+
+        // Refresh setting panel
+        Message msg = controlMessages.get(member.getId());
+        if (msg != null) {
+            msg.editMessage(buildSettingPanel(guild, member).build()).queue(null, _ -> {});
         }
     }
 
@@ -665,10 +811,18 @@ public class PudelCategorizing {
 
     private MessageEditBuilder buildSettingPanel(Guild guild, Member member) {
         String guildId = guild.getId();
-        CategorySetting settings = getOrCreateSetting(guildId);
+        boolean hasAuth = hasPermissionOrPrivilege(member, guildId);
 
-        String managerSummary = formatPermSummary(settings.getManager_allow(), settings.getManager_deny());
-        String roleSummary = formatPermSummary(settings.getRole_allow(), settings.getRole_deny());
+        List<PermissionProfile> profiles = profileRepo.query().where("guild_id", guildId).list();
+        StringBuilder profileSummary = new StringBuilder();
+        if (profiles.isEmpty()) {
+            profileSummary.append("_No permission profiles configured._");
+        } else {
+            for (PermissionProfile p : profiles) {
+                String summary = formatPermSummary(p.getAllow(), p.getDeny());
+                profileSummary.append("• **").append(p.getName()).append("** — ").append(summary).append("\n");
+            }
+        }
 
         List<PrivilegeRole> privRoles = privilegeRepo.query().where("guild_id", guildId).list();
         StringBuilder privSummary = new StringBuilder();
@@ -683,17 +837,16 @@ public class PudelCategorizing {
 
         return new MessageEditBuilder().useComponentsV2(true).setComponents(
                 Container.of(
-                        TextDisplay.of("# ⚙️ Default Permission Settings"),
+                        TextDisplay.of("# ⚙️ Permission Profile Settings"),
                         Separator.create(true, Separator.Spacing.SMALL),
-                        TextDisplay.of("### 👤 Manager Default Permission\n" + managerSummary),
-                        Separator.create(false, Separator.Spacing.SMALL),
-                        TextDisplay.of("### 🎭 Default Role Permission\n" + roleSummary),
+                        TextDisplay.of("### 📋 Permission Profiles\n" + profileSummary),
                         Separator.create(false, Separator.Spacing.SMALL),
                         TextDisplay.of("### 🛡️ Privilege Roles\n" + privSummary),
                         Separator.create(true, Separator.Spacing.SMALL),
                         ActionRow.of(
-                                Button.primary(btnPrefix + "perm_manager", "👤 Edit Manager Perm"),
-                                Button.primary(btnPrefix + "perm_role", "🎭 Edit Role Perm")
+                                Button.primary(btnPrefix + "profile_view", "👁️ View Profile"),
+                                Button.success(btnPrefix + "profile_create", "➕ Create Profile").withDisabled(!hasAuth),
+                                Button.danger(btnPrefix + "profile_remove", "➖ Remove Profile").withDisabled(!hasAuth || profiles.isEmpty())
                         ),
                         ActionRow.of(
                                 Button.primary(btnPrefix + "privilege", "🛡️ Privilege Roles"),
@@ -704,7 +857,7 @@ public class PudelCategorizing {
     }
 
     private MessageEditBuilder buildPermissionPanel(String userId, boolean hasAuth) {
-        String target = permTarget.getOrDefault(userId, "manager");
+        String profileName = editingProfileName.getOrDefault(userId, "Unknown");
         int cursor = permCursor.getOrDefault(userId, 0);
         LinkedHashMap<String, String> state = tempPermState.get(userId);
 
@@ -714,12 +867,8 @@ public class PudelCategorizing {
                             .withAccentColor(ACCENT_DANGER));
         }
 
-        String title = target.equals("manager")
-                ? "### 👤 Manager Default Permission"
-                : "### 🎭 Default Role Permission";
-
         StringBuilder sb = new StringBuilder();
-        sb.append(title).append("\n\n");
+        sb.append("### 📋 Profile: **").append(profileName).append("**\n\n");
 
         String lastSection = "";
         int index = 0;
@@ -730,7 +879,7 @@ public class PudelCategorizing {
                 lastSection = pi.section();
             }
 
-            String indicator = index == cursor ? "▸ " : "　";
+            String indicator = index == cursor ? "▸ " : "　 ";
             String permName = pi.perm().name();
             String stateStr = state.getOrDefault(permName, "INHERIT");
             String stateIcon = switch (stateStr) {
@@ -744,19 +893,21 @@ public class PudelCategorizing {
             index++;
         }
 
-        sb.append("\n-# ↕️ Navigate • 🔄 Swap state • ✅ Confirm to save");
+        sb.append("\n-# ↕️ Navigate • Set: ✅ Allow / ⬜ Inherit / ❌ Deny • ✅ Confirm to save");
 
         return new MessageEditBuilder().useComponentsV2(true).setComponents(
                 Container.of(
                         TextDisplay.of(sb.toString()),
                         Separator.create(true, Separator.Spacing.SMALL),
                         ActionRow.of(
-                                Button.primary(btnPrefix + "up", "⬆️ Up").withDisabled(!hasAuth),
-                                Button.primary(btnPrefix + "down", "⬇️ Down").withDisabled(!hasAuth),
-                                Button.success(btnPrefix + "swap", "🔄 Swap").withDisabled(!hasAuth)
+                                Button.primary(btnPrefix + "up", "⬆️ Up"),
+                                Button.primary(btnPrefix + "down", "⬇️ Down"),
+                                Button.success(btnPrefix + "allow", "✅ Allow").withDisabled(!hasAuth),
+                                Button.secondary(btnPrefix + "inherit", "⬜ Inherit").withDisabled(!hasAuth),
+                                Button.danger(btnPrefix + "deny", "❌ Deny").withDisabled(!hasAuth)
                         ),
                         ActionRow.of(
-                                Button.secondary(btnPrefix + "back_setting", "⬅️ Back"),
+                                Button.secondary(btnPrefix + "perm_back", "⬅️ Back"),
                                 Button.success(btnPrefix + "confirm", "✅ Confirm").withDisabled(!hasAuth),
                                 Button.danger(btnPrefix + "perm_reset", "🔃 Reset").withDisabled(!hasAuth)
                         )
@@ -813,6 +964,68 @@ public class PudelCategorizing {
                         Separator.create(true, Separator.Spacing.SMALL),
                         ActionRow.of(menuBuilder.build()),
                         ActionRow.of(Button.secondary(btnPrefix + "back_privilege", "⬅️ Back"))
+                ).withAccentColor(ACCENT_DANGER)
+        );
+    }
+
+    private MessageEditBuilder buildViewProfileSelectPanel(String guildId) {
+        List<PermissionProfile> profiles = profileRepo.query().where("guild_id", guildId).list();
+
+        if (profiles.isEmpty()) {
+            return new MessageEditBuilder().useComponentsV2(true).setComponents(
+                    Container.of(
+                            TextDisplay.of("### 👁️ View Permission Profile"),
+                            TextDisplay.of("_No permission profiles configured. Create one first._"),
+                            Separator.create(true, Separator.Spacing.SMALL),
+                            ActionRow.of(Button.secondary(btnPrefix + "back_setting", "⬅️ Back"))
+                    ).withAccentColor(ACCENT_SETTING)
+            );
+        }
+
+        StringSelectMenu.Builder menuBuilder = StringSelectMenu.create(menuPrefix + "profile_view")
+                .setPlaceholder("Select a profile to view/edit");
+        for (PermissionProfile p : profiles) {
+            menuBuilder.addOption(p.getName(), p.getName());
+        }
+
+        return new MessageEditBuilder().useComponentsV2(true).setComponents(
+                Container.of(
+                        TextDisplay.of("### 👁️ View Permission Profile"),
+                        TextDisplay.of("Select a profile to view or edit its permissions:"),
+                        Separator.create(true, Separator.Spacing.SMALL),
+                        ActionRow.of(menuBuilder.build()),
+                        ActionRow.of(Button.secondary(btnPrefix + "back_setting", "⬅️ Back"))
+                ).withAccentColor(ACCENT_SETTING)
+        );
+    }
+
+    private MessageEditBuilder buildRemoveProfileSelectPanel(String guildId) {
+        List<PermissionProfile> profiles = profileRepo.query().where("guild_id", guildId).list();
+
+        if (profiles.isEmpty()) {
+            return new MessageEditBuilder().useComponentsV2(true).setComponents(
+                    Container.of(
+                            TextDisplay.of("### ➖ Remove Permission Profile"),
+                            TextDisplay.of("_No permission profiles to remove._"),
+                            Separator.create(true, Separator.Spacing.SMALL),
+                            ActionRow.of(Button.secondary(btnPrefix + "back_setting", "⬅️ Back"))
+                    ).withAccentColor(ACCENT_DANGER)
+            );
+        }
+
+        StringSelectMenu.Builder menuBuilder = StringSelectMenu.create(menuPrefix + "profile_rm")
+                .setPlaceholder("Select a profile to remove");
+        for (PermissionProfile p : profiles) {
+            menuBuilder.addOption(p.getName(), p.getName());
+        }
+
+        return new MessageEditBuilder().useComponentsV2(true).setComponents(
+                Container.of(
+                        TextDisplay.of("### ➖ Remove Permission Profile"),
+                        TextDisplay.of("Select a profile to permanently remove:"),
+                        Separator.create(true, Separator.Spacing.SMALL),
+                        ActionRow.of(menuBuilder.build()),
+                        ActionRow.of(Button.secondary(btnPrefix + "back_setting", "⬅️ Back"))
                 ).withAccentColor(ACCENT_DANGER)
         );
     }
@@ -930,8 +1143,21 @@ public class PudelCategorizing {
             }
         }
 
+        StringBuilder unsyncChStr = new StringBuilder();
+        for(GuildChannel ch : cat.getChannels()){
+            if(ch.getPermissionContainer().getPermissionOverrides().equals(cat.getPermissionOverrides())){
+                unsyncChStr.append("- [%s](%s)\n".formatted(ch.getName(), ch.getJumpUrl()));
+            }
+        }
+
+        if(unsyncChStr.isEmpty()){
+            unsyncChStr.append("_*empty*_");
+        }
+
         String managerStr = entry.getManager_id() != null ? "<@" + entry.getManager_id() + ">" : "_Not set_";
+        String mgrProfileStr = entry.getManager_role_profile() != null ? "**" + entry.getManager_role_profile() + "**" : "_Not set_";
         String roleStr = entry.getDefault_role() != null ? "<@&" + entry.getDefault_role() + ">" : "_Not set_";
+        String roleProfileStr = entry.getDefault_role_profile() != null ? "**" + entry.getDefault_role_profile() + "**" : "_Not set_";
 
         String sb = """
                 ### 📂 %s
@@ -940,10 +1166,13 @@ public class PudelCategorizing {
                 💬 **Forum Channels:** %d
                 
                 👤 **Managed by:** %s
+                📋 **Manager Profile:** %s
                 🎭 **Default Role:** %s
+                📋 **Role Profile:** %s
                 
-                -*Unsync detection will be available in a future update*
-                """.formatted(cat.getName(), textCount, voiceCount, forumCount, managerStr, roleStr);
+                ### Unsync Channels
+                %s
+                """.formatted(cat.getName(), textCount, voiceCount, forumCount, managerStr, mgrProfileStr, roleStr, roleProfileStr, unsyncChStr);
 
         return new MessageEditBuilder().useComponentsV2(true).setComponents(
                 Container.of(
@@ -959,12 +1188,12 @@ public class PudelCategorizing {
     /**
      * Apply permission overrides to a Discord category based on settings.
      */
-    private void applyPermissions(Category category, Guild guild, String managerId, String roleId, CategorySetting settings) {
+    private void applyPermissions(Category category, Guild guild, String managerId, String roleId, PermissionProfile managerProfile, PermissionProfile roleProfile) {
         if (managerId != null) {
             Member manager = guild.getMemberById(managerId);
             if (manager != null) {
-                EnumSet<Permission> allow = parsePermissions(settings != null ? settings.getManager_allow() : "");
-                EnumSet<Permission> deny = parsePermissions(settings != null ? settings.getManager_deny() : "");
+                EnumSet<Permission> allow = parsePermissions(managerProfile != null ? managerProfile.getAllow() : "");
+                EnumSet<Permission> deny = parsePermissions(managerProfile != null ? managerProfile.getDeny() : "");
                 category.upsertPermissionOverride(manager)
                         .setAllowed(allow)
                         .setDenied(deny)
@@ -975,8 +1204,8 @@ public class PudelCategorizing {
         if (roleId != null) {
             Role role = guild.getRoleById(roleId);
             if (role != null) {
-                EnumSet<Permission> allow = parsePermissions(settings != null ? settings.getRole_allow() : "");
-                EnumSet<Permission> deny = parsePermissions(settings != null ? settings.getRole_deny() : "");
+                EnumSet<Permission> allow = parsePermissions(roleProfile != null ? roleProfile.getAllow() : "");
+                EnumSet<Permission> deny = parsePermissions(roleProfile != null ? roleProfile.getDeny() : "");
                 // Spec: Default Role always gets VIEW_CHANNEL
                 allow.add(Permission.VIEW_CHANNEL);
                 category.upsertPermissionOverride(role)
@@ -994,6 +1223,12 @@ public class PudelCategorizing {
         }
     }
 
+    /**
+     * Parses a comma-separated string of permission names into an EnumSet of Permission objects.
+     *
+     * @param permString A string containing permission names separated by commas, or null/empty
+     * @return An EnumSet containing the parsed Permission objects, or an empty set if input is null/blank or contains no valid permissions
+     */
     private EnumSet<Permission> parsePermissions(String permString) {
         if (permString == null || permString.isBlank()) return EnumSet.noneOf(Permission.class);
         EnumSet<Permission> set = EnumSet.noneOf(Permission.class);
@@ -1005,6 +1240,17 @@ public class PudelCategorizing {
         return set;
     }
 
+    /**
+     * Formats a summary of allowed and denied permissions into a human-readable string.
+     * If both allow and deny strings are null or blank, returns a default message indicating
+     * that all permissions are set to inherit.
+     *
+     * @param allow A comma-separated string of allowed permissions, may be null or blank
+     * @param deny  A comma-separated string of denied permissions, may be null or blank
+     * @return A formatted string summarizing the number of allowed and denied permissions,
+     *         using emojis and bold formatting, or a default inheritance message if neither
+     *         allow nor deny permissions are specified
+     */
     private String formatPermSummary(String allow, String deny) {
         boolean hasAllow = allow != null && !allow.isBlank();
         boolean hasDeny = deny != null && !deny.isBlank();
@@ -1023,11 +1269,13 @@ public class PudelCategorizing {
         return sb.toString();
     }
 
-    /** Load permission state from DB into temporary session map. */
-    private void loadPermStateFromDb(String userId, String guildId, String target) {
-        CategorySetting settings = getOrCreateSetting(guildId);
-        String allowStr = target.equals("manager") ? settings.getManager_allow() : settings.getRole_allow();
-        String denyStr = target.equals("manager") ? settings.getManager_deny() : settings.getRole_deny();
+    /**
+     * Loads permission state from a named profile for the permission editor.
+     */
+    private void loadProfilePermState(String userId, String guildId, String profileName) {
+        PermissionProfile profile = findProfile(guildId, profileName);
+        String allowStr = profile != null ? profile.getAllow() : "";
+        String denyStr = profile != null ? profile.getDeny() : "";
 
         Set<String> allowSet = (allowStr != null && !allowStr.isBlank())
                 ? Set.of(allowStr.split(",")) : Set.of();
@@ -1044,12 +1292,12 @@ public class PudelCategorizing {
         tempPermState.put(userId, state);
     }
 
-    /** Save temporary permission state to DB. */
-    private void savePermStateToDb(String userId, String guildId) {
+    /** Save temporary permission state to a named profile. */
+    private void saveProfilePermState(String userId, String guildId) {
         LinkedHashMap<String, String> state = tempPermState.get(userId);
-        if (state == null) return;
+        String profileName = editingProfileName.get(userId);
+        if (state == null || profileName == null) return;
 
-        String target = permTarget.getOrDefault(userId, "manager");
         String allow = state.entrySet().stream()
                 .filter(e -> e.getValue().equals("ALLOW"))
                 .map(Map.Entry::getKey)
@@ -1059,46 +1307,35 @@ public class PudelCategorizing {
                 .map(Map.Entry::getKey)
                 .collect(Collectors.joining(","));
 
-        CategorySetting existing = getOrCreateSetting(guildId);
-
-        CategorySetting updated;
-        if (target.equals("manager")) {
-            updated = new CategorySetting(existing.getId(), guildId, allow, deny, existing.getRole_allow(), existing.getRole_deny());
-        } else {
-            updated = new CategorySetting(existing.getId(), guildId, existing.getManager_allow(), existing.getManager_deny(), allow, deny);
+        List<PermissionProfile> existing = profileRepo.query()
+                .where("guild_id", guildId).where("name", profileName).list();
+        if (!existing.isEmpty()) {
+            PermissionProfile p = existing.getFirst();
+            profileRepo.save(new PermissionProfile(p.getId(), guildId, profileName, allow, deny));
         }
-        settingRepo.save(updated);
 
         // Clean session
         permCursor.remove(userId);
-        permTarget.remove(userId);
+        editingProfileName.remove(userId);
         tempPermState.remove(userId);
     }
 
-    /** Cycle the permission state at the current cursor: INHERIT → ALLOW → DENY → INHERIT. */
-    private void swapCurrentPermState(String userId) {
+    /** Set the permission state at the current cursor to a specific value. */
+    private void setCurrentPermState(String userId, String value) {
         int cursor = permCursor.getOrDefault(userId, 0);
         LinkedHashMap<String, String> state = tempPermState.get(userId);
         if (state == null || cursor >= MANAGEABLE_PERMISSIONS.size()) return;
 
         String permName = MANAGEABLE_PERMISSIONS.get(cursor).perm().name();
-        String current = state.getOrDefault(permName, "INHERIT");
-        String next = switch (current) {
-            case "INHERIT" -> "ALLOW";
-            case "ALLOW" -> "DENY";
-            default -> "INHERIT";
-        };
-        state.put(permName, next);
+        state.put(permName, value);
     }
 
-    /** Get or create a default setting entry for a guild. */
-    private CategorySetting getOrCreateSetting(String guildId) {
-        List<CategorySetting> existing = settingRepo.query().where("guild_id", guildId).list();
-        if (!existing.isEmpty()) return existing.getFirst();
-
-        CategorySetting fresh = new CategorySetting(null, guildId, "", "", "", "");
-        settingRepo.save(fresh);
-        return settingRepo.query().where("guild_id", guildId).list().getFirst();
+    /** Find a permission profile by guild ID and name. Returns null if not found. */
+    private PermissionProfile findProfile(String guildId, String profileName) {
+        if (profileName == null || profileName.isBlank()) return null;
+        List<PermissionProfile> list = profileRepo.query()
+                .where("guild_id", guildId).where("name", profileName).list();
+        return list.isEmpty() ? null : list.getFirst();
     }
 
     // ==================== UTILITY ====================
