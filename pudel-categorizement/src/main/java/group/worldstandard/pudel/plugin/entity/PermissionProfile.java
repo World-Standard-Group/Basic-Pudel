@@ -2,12 +2,27 @@ package group.worldstandard.pudel.plugin.entity;
 
 import group.worldstandard.pudel.api.database.Entity;
 
+/**
+ * Persisted permission profile for a guild.
+ * <p>
+ * This entity stores the profile name together with the serialized permission
+ * definitions to explicitly allow and deny. The values in {@code allow} and
+ * {@code deny} are stored in their persisted string format and should be kept
+ * consistent with the rest of the plugin to avoid migration and compatibility
+ * issues.
+ */
 @Entity
 public class PermissionProfile {
     private Long id;
     private String guild_id;
     private String name;
+    /**
+     * Serialized permissions that this profile explicitly allows.
+     */
     private String allow;
+    /**
+     * Serialized permissions that this profile explicitly denies.
+     */
     private String deny;
 
     public PermissionProfile() {

@@ -4,7 +4,7 @@
 **Author:** Zazalng  
 **For:** Pudel API 2.2.2+
 
-Pudel's Category Management is a plugin module for the Pudel Discord Bot that provides a full Components v2 control panel for creating, importing, managing permissions, and unlinking Discord categories via slash command. It automates the assignment of category-level permission overrides for designated by profile, keeping your server organized and secure.
+Pudel's Category Management is a plugin module for the Pudel Discord Bot that provides a full Components v2 control panel for creating, importing, managing permissions, and unlinking Discord categories via slash command. It automates the assignment of category-level permission overrides based on the selected permission profiles, such as manager and default role, keeping your server organized and secure.
 
 ---
 
@@ -13,7 +13,7 @@ Pudel's Category Management is a plugin module for the Pudel Discord Bot that pr
 * **Interactive Control Panel:** A fully UI-driven ephemeral control panel built with Discord's modern Components v2 system (`Container`, `TextDisplay`, `Separator`, `ActionRow`).
 * **Create Categories:** Create new Discord categories with optional Manager User, Default Role, and opt-in Pudel tracking — all from a single modal using `TextInput`, `EntitySelectMenu`, and `CheckboxGroup`.
 * **Import Existing Categories:** Import categories already in your server under Pudel's control, with an acknowledgement checkbox to confirm permission sync awareness.
-* **Default Permission Settings:** Configure default Allow / Inherit / Deny permission states as Profile using a retro NES-style cursor navigation UI (⬆️ Up, ⬇️ Down, 🔄 Swap) (We're short component limit for had every button for each permission for swap).
+* **Default Permission Settings:** Configure default Allow / Inherit / Deny permission states by profile using the permission editor's explicit state controls.
 * **Privilege Roles:** Grant specific roles the ability to create, import, and edit permissions without needing the Discord `Manage Channels` permission.
 * **Category Viewer:** Browse all Pudel-tracked categories with stats including channel counts (text, voice, forum), assigned manager, and default role.
 * **Unlink Categories:** Remove a category from Pudel's tracking without deleting it from the server. Visibility is scoped — admins see all, managers see only their own.

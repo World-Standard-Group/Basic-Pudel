@@ -215,7 +215,7 @@ public class PudelCategorizing {
                 .column("name", ColumnType.TEXT, false)
                 .column("allow", ColumnType.TEXT, false, "''")
                 .column("deny", ColumnType.TEXT, false, "''")
-                .index("guild_id")
+                .uniqueIndex("guild_id", "name")
                 .build();
         context.log("info", "Creating table '%s': %s".formatted(profileSchema.getTableName(), db.createTable(profileSchema)));
 
@@ -455,6 +455,12 @@ public class PudelCategorizing {
                 event.editMessage(buildPermissionPanel(userId, hasAuth).build()).queue();
             }
             case "profile_rm" -> {
+                if (!hasPermissionOrPrivilege(member, guildId)) {
+                    event.reply("❌ You do not have permission to remove permission profiles!").setEphemeral(true)
+                            .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+                    return;
+                }
+
                 List<PermissionProfile> profiles = profileRepo.query()
                         .where("guild_id", guildId).where("name", selected).list();
                 if (!profiles.isEmpty()) {
@@ -706,6 +712,12 @@ public class PudelCategorizing {
     }
 
     private void handleCreateProfileModal(ModalInteractionEvent event, Guild guild, Member member) {
+        if (!hasPermissionOrPrivilege(member, guild.getId())) {
+            event.reply("❌ You do not have permission to create permission profiles!").setEphemeral(true)
+                    .queue(m -> m.deleteOriginal().queueAfter(5, TimeUnit.SECONDS));
+            return;
+        }
+
         String profileName = getModalString(event, "profile_name").trim();
         String guildId = guild.getId();
 
@@ -1145,7 +1157,7 @@ public class PudelCategorizing {
 
         StringBuilder unsyncChStr = new StringBuilder();
         for(GuildChannel ch : cat.getChannels()){
-            if(ch.getPermissionContainer().getPermissionOverrides().equals(cat.getPermissionOverrides())){
+            if(!ch.getPermissionContainer().getPermissionOverrides().equals(cat.getPermissionOverrides())){
                 unsyncChStr.append("- [%s](%s)\n".formatted(ch.getName(), ch.getJumpUrl()));
             }
         }
