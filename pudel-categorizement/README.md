@@ -110,6 +110,6 @@ Navigate with **⬆️ Up** / **⬇️ Down**, then **✅ Confirm** to save or *
 
 ---
 
-*Note: This plugin tracks categories via Pudel's database; manually creating or modifying category permissions through Discord will not be reflected in Pudel's settings panel.*  
+*Note: This plugin tracks categories via Pudel's database; manually creating or modifying category permissions through Discord after create/import via command will not be reflected in Pudel's settings panel.*  
 *Note: You have a window-time for responding to components within 15 minutes, or your session will expire and you must start again.*
 

@@ -20,10 +20,7 @@ package group.worldstandard.pudel.plugin;
 
 import group.worldstandard.pudel.api.PluginContext;
 import group.worldstandard.pudel.api.annotation.*;
-import group.worldstandard.pudel.api.database.ColumnType;
-import group.worldstandard.pudel.api.database.PluginDatabaseManager;
-import group.worldstandard.pudel.api.database.PluginRepository;
-import group.worldstandard.pudel.api.database.TableSchema;
+import group.worldstandard.pudel.api.database.*;
 import group.worldstandard.pudel.plugin.entity.CategoryEntry;
 import group.worldstandard.pudel.plugin.entity.PermissionProfile;
 import group.worldstandard.pudel.plugin.entity.PrivilegeRole;
@@ -125,7 +122,7 @@ public class PudelCategorizing {
             new PermInfo(Permission.MESSAGE_EMBED_LINKS, "Embed Links", "Messaging"),
             new PermInfo(Permission.MESSAGE_ATTACH_FILES, "Attach Files", "Messaging"),
             new PermInfo(Permission.MESSAGE_ADD_REACTION, "Add Reactions", "Messaging"),
-            new PermInfo(Permission.MESSAGE_MENTION_EVERYONE, "Mention @everyone", "Messaging"),
+            new PermInfo(Permission.MESSAGE_MENTION_EVERYONE, "Mention Ability `@`", "Messaging"),
             new PermInfo(Permission.MESSAGE_MANAGE, "Manage Messages", "Messaging"),
             new PermInfo(Permission.MANAGE_THREADS, "Manage Threads & Posts", "Messaging"),
             new PermInfo(Permission.MESSAGE_HISTORY, "Read Message History", "Messaging"),
@@ -199,33 +196,47 @@ public class PudelCategorizing {
     // ==================== DATABASE ====================
 
     private void initializeDatabase(PluginDatabaseManager db) {
-        TableSchema categorySchema = TableSchema.builder("category")
-                .column("guild_id", ColumnType.TEXT, false)
-                .column("category_id", ColumnType.TEXT, false)
-                .column("manager_id", ColumnType.TEXT, true)
-                .column("manager_role_profile", ColumnType.TEXT, true)
-                .column("default_role", ColumnType.TEXT, true)
-                .column("default_role_profile", ColumnType.TEXT, true)
-                .uniqueIndex("category_id")
-                .build();
-        context.log("info", "Creating table '%s': %s".formatted(categorySchema.getTableName(), db.createTable(categorySchema)));
+        migrationDatabase(db);
+        createRepository(db);
+    }
 
-        TableSchema profileSchema = TableSchema.builder("permission_profile")
-                .column("guild_id", ColumnType.TEXT, false)
-                .column("name", ColumnType.TEXT, false)
-                .column("allow", ColumnType.TEXT, false, "''")
-                .column("deny", ColumnType.TEXT, false, "''")
-                .uniqueIndex("guild_id", "name")
-                .build();
-        context.log("info", "Creating table '%s': %s".formatted(profileSchema.getTableName(), db.createTable(profileSchema)));
+    private void migrationDatabase(PluginDatabaseManager db){
+        db.migrate(1, _ -> {
+            TableSchema categorySchema = TableSchema.builder("category")
+                    .column("guild_id", ColumnType.TEXT, false)
+                    .column("category_id", ColumnType.TEXT, false)
+                    .column("manager_id", ColumnType.TEXT, true)
+                    .column("manager_role_profile", ColumnType.TEXT, true)
+                    .column("default_role", ColumnType.TEXT, true)
+                    .column("default_role_profile", ColumnType.TEXT, true)
+                    .uniqueIndex("category_id")
+                    .build();
+            context.log("info", "Creating table '%s': %s".formatted(categorySchema.getTableName(), db.createTable(categorySchema)));
 
-        TableSchema privilegeSchema = TableSchema.builder("privilege_role")
-                .column("guild_id", ColumnType.TEXT, false)
-                .column("role_id", ColumnType.TEXT, false)
-                .index("guild_id")
-                .build();
-        context.log("info", "Creating table '%s': %s".formatted(privilegeSchema.getTableName(), db.createTable(privilegeSchema)));
+            TableSchema profileSchema = TableSchema.builder("permission_profile")
+                    .column("guild_id", ColumnType.TEXT, false)
+                    .column("name", ColumnType.TEXT, false)
+                    .column("allow", ColumnType.TEXT, false, "''")
+                    .column("deny", ColumnType.TEXT, false, "''")
+                    .uniqueIndex("guild_id", "name")
+                    .build();
+            context.log("info", "Creating table '%s': %s".formatted(profileSchema.getTableName(), db.createTable(profileSchema)));
 
+            TableSchema privilegeSchema = TableSchema.builder("privilege_role")
+                    .column("guild_id", ColumnType.TEXT, false)
+                    .column("role_id", ColumnType.TEXT, false)
+                    .index("guild_id")
+                    .build();
+            context.log("info", "Creating table '%s': %s".formatted(privilegeSchema.getTableName(), db.createTable(privilegeSchema)));
+        });
+
+        db.migrate(2, m -> {
+            m.dropIndex("privilege_role", "guild_id");
+            m.createIndex("privilege_role", true, "guild_id", "role_id");
+        });
+    }
+
+    private void createRepository(PluginDatabaseManager db){
         this.categoryRepo = db.getRepository("category", CategoryEntry.class);
         this.profileRepo = db.getRepository("permission_profile", PermissionProfile.class);
         this.privilegeRepo = db.getRepository("privilege_role", PrivilegeRole.class);
@@ -245,7 +256,7 @@ public class PudelCategorizing {
             description = "Open Control Panel for management category channel",
             nsfw = false,
             global = false,
-            integrationTo = IntegrationType.GUILD_INSTALL,
+            integrationTo = {IntegrationType.GUILD_INSTALL},
             integrationContext = {InteractionContextType.GUILD}
     )
     public void onOpenControlPanel(SlashCommandInteractionEvent event) {
@@ -555,7 +566,7 @@ public class PudelCategorizing {
             );
         }
 
-        modalBuilder.addComponents(Label.of("Acknowledged", ackGroup));
+        modalBuilder.addComponents(Label.of("Acknowledgement", ackGroup));
         event.replyModal(modalBuilder.build()).queue();
     }
 

@@ -133,26 +133,35 @@ public class PudelPlayfulTime {
     }
 
     private void initializeDatabase(PluginDatabaseManager db) {
-        TableSchema containerSchema = TableSchema.builder("prank_container")
-                .column("user_id", ColumnType.STRING, 20, false)
-                .column("container_id", ColumnType.STRING, false)
-                .column("name", ColumnType.TEXT, false)
-                .column("usage", ColumnType.INTEGER, false, "0")
-                .index("user_id")
-                .uniqueIndex("container_id")
-                .build();
-        db.createTable(containerSchema);
+        migrationDatabase(db);
+        createRepository(db);
+    }
 
-        TableSchema collectionSchema = TableSchema.builder("prank_collection")
-                .column("prank_id", ColumnType.STRING, false)
-                .column("container_id", ColumnType.STRING, false)
-                .column("url", ColumnType.STRING, 255, false)
-                .column("placeholder", ColumnType.TEXT, false)
-                .index("container_id")
-                .uniqueIndex("prank_id")
-                .build();
-        db.createTable(collectionSchema);
+    private void migrationDatabase(PluginDatabaseManager db){
+        db.migrate(1, _ -> {
+            TableSchema containerSchema = TableSchema.builder("prank_container")
+                    .column("user_id", ColumnType.STRING, 20, false)
+                    .column("container_id", ColumnType.STRING, false)
+                    .column("name", ColumnType.TEXT, false)
+                    .column("usage", ColumnType.INTEGER, false, "0")
+                    .index("user_id")
+                    .uniqueIndex("container_id")
+                    .build();
+            db.createTable(containerSchema);
 
+            TableSchema collectionSchema = TableSchema.builder("prank_collection")
+                    .column("prank_id", ColumnType.STRING, false)
+                    .column("container_id", ColumnType.STRING, false)
+                    .column("url", ColumnType.STRING, 255, false)
+                    .column("placeholder", ColumnType.TEXT, false)
+                    .index("container_id")
+                    .uniqueIndex("prank_id")
+                    .build();
+            db.createTable(collectionSchema);
+        });
+    }
+
+    private void createRepository(PluginDatabaseManager db){
         this.containerRepo = db.getRepository("prank_container", PrankContainer.class);
         this.collectionRepo = db.getRepository("prank_collection", PrankCollection.class);
     }

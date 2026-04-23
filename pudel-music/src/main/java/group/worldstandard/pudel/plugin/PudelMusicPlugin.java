@@ -136,27 +136,36 @@ public class PudelMusicPlugin {
     // ==================== DATABASE ====================
 
     private void initializeDatabase(PluginDatabaseManager db) {
-        TableSchema queueSchema = TableSchema.builder("music_queue")
-                .column("guild_id", ColumnType.BIGINT, false)
-                .column("user_id", ColumnType.BIGINT, false)
-                .column("track_blob", ColumnType.TEXT, false)
-                .column("status", ColumnType.STRING, 20, false, "'QUEUE'")
-                .column("title", ColumnType.STRING, 255, true)
-                .column("is_looped", ColumnType.BOOLEAN, false, "false")
-                .index("guild_id")
-                .build();
-        db.createTable(queueSchema);
+        migrationDatabase(db);
+        createRepository(db);
+    }
 
-        TableSchema historySchema = TableSchema.builder("music_history")
-                .column("guild_id", ColumnType.BIGINT, false)
-                .column("user_id", ColumnType.BIGINT, false)
-                .column("track_title", ColumnType.STRING, 255, false)
-                .column("track_url", ColumnType.TEXT, false)
-                .column("played_at", ColumnType.BIGINT, false)
-                .index("guild_id")
-                .build();
-        db.createTable(historySchema);
+    private void migrationDatabase(PluginDatabaseManager db){
+        db.migrate(1, _ -> {
+            TableSchema queueSchema = TableSchema.builder("music_queue")
+                    .column("guild_id", ColumnType.BIGINT, false)
+                    .column("user_id", ColumnType.BIGINT, false)
+                    .column("track_blob", ColumnType.TEXT, false)
+                    .column("status", ColumnType.STRING, 20, false, "'QUEUE'")
+                    .column("title", ColumnType.STRING, 255, true)
+                    .column("is_looped", ColumnType.BOOLEAN, false, "false")
+                    .index("guild_id")
+                    .build();
+            db.createTable(queueSchema);
 
+            TableSchema historySchema = TableSchema.builder("music_history")
+                    .column("guild_id", ColumnType.BIGINT, false)
+                    .column("user_id", ColumnType.BIGINT, false)
+                    .column("track_title", ColumnType.STRING, 255, false)
+                    .column("track_url", ColumnType.TEXT, false)
+                    .column("played_at", ColumnType.BIGINT, false)
+                    .index("guild_id")
+                    .build();
+            db.createTable(historySchema);
+        });
+    }
+
+    private void createRepository(PluginDatabaseManager db){
         this.queueRepo = db.getRepository("music_queue", QueueEntry.class);
         this.historyRepo = db.getRepository("music_history", HistoryEntry.class);
     }
@@ -190,8 +199,8 @@ public class PudelMusicPlugin {
                 com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager.class
         );
 
-        String oauth2Api = "";
-        ytSourceManager.useOauth2(oauth2Api, !oauth2Api.isEmpty());
+        /*String oauth2Api = "";
+        ytSourceManager.useOauth2(oauth2Api, !oauth2Api.isEmpty());*/
         this.playerManager.registerSourceManager(ytSourceManager);
     }
 

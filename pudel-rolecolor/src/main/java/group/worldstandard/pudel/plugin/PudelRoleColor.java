@@ -63,31 +63,7 @@ public class PudelRoleColor {
     @OnEnable
     public void onEnable(PluginContext ctx) {
         this.context = ctx;
-        PluginDatabaseManager db = ctx.getDatabaseManager();
-
-        TableSchema roleSchema = TableSchema.builder("managed_roles")
-                .column("role_id", ColumnType.BIGINT, false)
-                .column("guild_id", ColumnType.BIGINT, false)
-                .column("hex_code", ColumnType.STRING, 7, false)
-                .index("role_id")
-                .uniqueIndex("guild_id", "hex_code")
-                .build();
-
-        TableSchema assignmentSchema = TableSchema.builder("user_assignments")
-                .column("user_id", ColumnType.BIGINT, false)
-                .column("guild_id", ColumnType.BIGINT, false)
-                .column("role_id", ColumnType.BIGINT, false)
-                .index("role_id")
-                .uniqueIndex("user_id", "guild_id")
-                .build();
-
-        db.createTable(roleSchema);
-        db.createTable(assignmentSchema);
-
-        PluginRepository<ManagedRole> roleRepo = db.getRepository("managed_roles", ManagedRole.class);
-        PluginRepository<UserAssignment> assignmentRepo = db.getRepository("user_assignments", UserAssignment.class);
-
-        this.service = new RoleColorService(ctx, roleRepo, assignmentRepo);
+        initializeDatabase(ctx.getDatabaseManager());
 
         ctx.log("info", "RoleColor plugin loaded & database initialized.");
     }
@@ -95,6 +71,43 @@ public class PudelRoleColor {
     @OnShutdown
     public boolean onShutdown(PluginContext ctx) {
         return true;
+    }
+
+    // ==================== Database =====================
+    private void initializeDatabase(PluginDatabaseManager db){
+        migrationDatabase(db);
+        createRepository(db);
+    }
+
+    private void migrationDatabase(PluginDatabaseManager db){
+        db.migrate(1, _ -> {
+            TableSchema roleSchema = TableSchema.builder("managed_roles")
+                    .column("role_id", ColumnType.BIGINT, false)
+                    .column("guild_id", ColumnType.BIGINT, false)
+                    .column("hex_code", ColumnType.STRING, 7, false)
+                    .index("role_id")
+                    .uniqueIndex("guild_id", "hex_code")
+                    .build();
+
+            db.createTable(roleSchema);
+
+            TableSchema assignmentSchema = TableSchema.builder("user_assignments")
+                    .column("user_id", ColumnType.BIGINT, false)
+                    .column("guild_id", ColumnType.BIGINT, false)
+                    .column("role_id", ColumnType.BIGINT, false)
+                    .index("role_id")
+                    .uniqueIndex("user_id", "guild_id")
+                    .build();
+
+            db.createTable(assignmentSchema);
+        });
+    }
+
+    private void createRepository(PluginDatabaseManager db){
+        PluginRepository<ManagedRole> roleRepo = db.getRepository("managed_roles", ManagedRole.class);
+        PluginRepository<UserAssignment> assignmentRepo = db.getRepository("user_assignments", UserAssignment.class);
+
+        this.service = new RoleColorService(context, roleRepo, assignmentRepo);
     }
 
     // ==================== SLASH COMMAND ====================
