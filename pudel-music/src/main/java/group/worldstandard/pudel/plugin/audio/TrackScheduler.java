@@ -39,7 +39,8 @@ public class TrackScheduler extends AudioEventAdapter {
             AudioPlayerManager playerManager,
             PluginRepository<QueueEntry> queueRepo,
             PluginRepository<HistoryEntry> historyRepo
-    ) {}
+    ) {
+    }
 
     public TrackScheduler(AudioPlayer player, long guildId, Dependencies deps) {
         this.player = player;
@@ -158,9 +159,17 @@ public class TrackScheduler extends AudioEventAdapter {
         }
     }
 
-    public void cycleLoopMode() { loopMode = (loopMode + 1) % 3; }
-    public void toggleShuffle() { shuffle = !shuffle; }
-    public void clearQueue() { deps.queueRepo().deleteBy("guild_id", guildId); }
+    public void cycleLoopMode() {
+        loopMode = (loopMode + 1) % 3;
+    }
+
+    public void toggleShuffle() {
+        shuffle = !shuffle;
+    }
+
+    public void clearQueue() {
+        deps.queueRepo().deleteBy("guild_id", guildId);
+    }
 
     // ==================== TRACK ENCODING ====================
 
@@ -176,4 +185,3 @@ public class TrackScheduler extends AudioEventAdapter {
         return deps.playerManager().decodeTrack(new MessageInput(input)).decodedTrack;
     }
 }
-

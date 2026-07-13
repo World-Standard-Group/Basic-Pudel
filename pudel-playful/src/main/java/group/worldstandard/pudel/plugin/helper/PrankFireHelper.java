@@ -255,4 +255,3 @@ public class PrankFireHelper {
         return list.isEmpty() ? null : list.getFirst();
     }
 }
-

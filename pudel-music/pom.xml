@@ -7,7 +7,7 @@
     <parent>
         <groupId>group.worldstandard</groupId>
         <artifactId>default-pudel</artifactId>
-        <version>2.2.2</version>
+        <version>2.3.2</version>
     </parent>
 
     <artifactId>pudel-music</artifactId>
@@ -49,7 +49,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <lavaplayer.version>2.2.6</lavaplayer.version>
-        <youtube-source.version>1.18.0</youtube-source.version>
+        <youtube-source.version>1.18.1</youtube-source.version>
         <graaljs.version>25.0.2</graaljs.version>
     </properties>
 
@@ -84,7 +84,7 @@
             <dependency>
                 <groupId>commons-io</groupId>
                 <artifactId>commons-io</artifactId>
-                <version>2.21.0</version>
+                <version>2.22.0</version>
             </dependency>
             <dependency>
                 <groupId>org.mozilla</groupId>
@@ -92,14 +92,11 @@
                 <version>1.9.1</version>
             </dependency>
             <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-core</artifactId>
-                <version>2.21.2</version>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>2.21.2</version>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>2.22.1</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>org.mozilla</groupId>
@@ -109,7 +106,7 @@
             <dependency>
                 <groupId>commons-codec</groupId>
                 <artifactId>commons-codec</artifactId>
-                <version>1.21.0</version>
+                <version>1.22.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -119,7 +116,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.6.2</version>
+                <version>${shade.version}</version>
                 <executions>
                     <execution>
                         <phase>package</phase>

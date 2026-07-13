@@ -243,4 +243,3 @@ public class PrankExportImportHelper {
         try { new URI(url); return url.startsWith("http"); } catch (Exception e) { return false; }
     }
 }
-

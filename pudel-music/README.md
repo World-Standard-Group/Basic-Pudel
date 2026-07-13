@@ -1,8 +1,8 @@
 # Basic Pudel - Pudel's Music
 
-**Version:** 3.1.1  
+**Version:** 3.1.2
 **Author:** Zazalng  
-**For:** Pudel API 2.2.2+
+**For:** Pudel API 2.3.0+
 
 Pudel's Music plugin is a comprehensive, unified music player module designed for the Pudel Discord Bot. It provides users with a centralized "Music Box" interface built entirely using Discord's modern Components v2 system.
 

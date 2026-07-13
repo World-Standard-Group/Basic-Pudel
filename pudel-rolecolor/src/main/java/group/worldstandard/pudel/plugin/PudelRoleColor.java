@@ -65,11 +65,18 @@ public class PudelRoleColor {
         this.context = ctx;
         initializeDatabase(ctx.getDatabaseManager());
 
-        ctx.log("info", "RoleColor plugin loaded & database initialized.");
+        ctx.log("info", "%s (v%s) has initialized on '%s'".formatted(
+                ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent())
+        );
     }
 
     @OnShutdown
     public boolean onShutdown(PluginContext ctx) {
+        context = null;
+
+        ctx.log("info", "%s (v%s) graceful shutdown on '%s'".formatted(
+                ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent())
+        );
         return true;
     }
 

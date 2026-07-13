@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>group.worldstandard</groupId>
+        <artifactId>default-pudel</artifactId>
+        <version>2.3.2</version>
+    </parent>
+
+    <name>Pudel's Governor</name>
+    <artifactId>pudel-governance</artifactId>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://raw.githubusercontent.com/World-Standard-Group/Basic-Pudel/refs/heads/main/LICENSE</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>zazalng</id>
+            <name>Napapon Kamanee</name>
+            <email>zazalng.founder@worldstandard.group</email>
+            <roles>
+                <role>Founder</role>
+            </roles>
+            <organization>World Standard Group</organization>
+            <organizationUrl>https://github.com/World-Standard-Group</organizationUrl>
+        </developer>
+    </developers>
+
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/World-Standard-Group/Basic-Pudel/issues</url>
+    </issueManagement>
+
+    <scm>
+        <connection>scm:git:https://github.com/World-Standard-Group/Basic-Pudel.git</connection>
+        <developerConnection>scm:git:git@github.com:World-Standard-Group/Basic-Pudel.git</developerConnection>
+        <url>https://github.com/World-Standard-Group/Basic-Pudel.git</url>
+    </scm>
+
+    <properties>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>${shade.version}</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

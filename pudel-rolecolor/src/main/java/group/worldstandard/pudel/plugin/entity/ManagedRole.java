@@ -18,4 +18,3 @@ public class ManagedRole {
     public String getHexCode() { return hexCode; }
     public void setHexCode(String hexCode) { this.hexCode = hexCode; }
 }
-

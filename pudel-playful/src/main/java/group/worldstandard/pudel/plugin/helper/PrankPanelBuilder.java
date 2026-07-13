@@ -225,4 +225,3 @@ public class PrankPanelBuilder {
         return list.isEmpty() ? null : list.getFirst();
     }
 }
-

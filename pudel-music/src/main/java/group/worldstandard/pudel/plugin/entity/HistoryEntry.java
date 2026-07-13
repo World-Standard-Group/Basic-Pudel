@@ -24,4 +24,3 @@ public class HistoryEntry {
     public Long getPlayedAt() { return playedAt; }
     public void setPlayedAt(Long playedAt) { this.playedAt = playedAt; }
 }
-

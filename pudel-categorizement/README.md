@@ -1,8 +1,8 @@
 # Advanced Pudel - 📂 Pudel's Category Management
 
-**Version:** 2.0.0  
+**Version:** 2.0.1  
 **Author:** Zazalng  
-**For:** Pudel API 2.2.2+
+**For:** Pudel API 2.3.0+
 
 Pudel's Category Management is a plugin module for the Pudel Discord Bot that provides a full Components v2 control panel for creating, importing, managing permissions, and unlinking Discord categories via slash command. It automates the assignment of category-level permission overrides based on the selected permission profiles, such as manager and default role, keeping your server organized and secure.
 

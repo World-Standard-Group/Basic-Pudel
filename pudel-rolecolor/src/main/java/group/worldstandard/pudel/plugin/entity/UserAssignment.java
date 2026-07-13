@@ -18,4 +18,3 @@ public class UserAssignment {
     public Long getRoleId() { return roleId; }
     public void setRoleId(Long roleId) { this.roleId = roleId; }
 }
-

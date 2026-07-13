@@ -27,4 +27,3 @@ public class QueueEntry {
     public Boolean getIsLooped() { return isLooped; }
     public void setIsLooped(Boolean looped) { isLooped = looped; }
 }
-

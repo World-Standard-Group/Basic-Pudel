@@ -6,7 +6,7 @@
     <parent>
         <groupId>group.worldstandard</groupId>
         <artifactId>default-pudel</artifactId>
-        <version>2.2.2</version>
+        <version>2.3.2</version>
     </parent>
 
     <artifactId>pudel-playful</artifactId>
@@ -46,21 +46,16 @@
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <jackson.version>3.1.2</jackson.version>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
-            <version>${jackson.version}</version>
-            <scope>provided</scope>
         </dependency>
     </dependencies>
 
@@ -69,7 +64,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.6.1</version>
+                <version>${shade.version}</version>
                 <executions>
                     <execution>
                         <phase>package</phase>

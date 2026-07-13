@@ -42,4 +42,5 @@ build/
 /.idea/
 /pudel-music/dependency-reduced-pom.xml
 /plugin-development.md
-.ignoreResource/
+/.ignoreResource/
+/.agentbridge/

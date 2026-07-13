@@ -40,6 +40,8 @@ import group.worldstandard.pudel.plugin.entity.QueueEntry;
 import group.worldstandard.pudel.plugin.session.MusicSession;
 import group.worldstandard.pudel.plugin.session.MusicSession.View;
 import group.worldstandard.pudel.plugin.view.MusicViewBuilder;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.container.Container;
 import net.dv8tion.jda.api.components.label.Label;
 import net.dv8tion.jda.api.components.selections.SelectOption;
@@ -116,20 +118,25 @@ public class PudelMusicPlugin {
     public void onEnable(PluginContext ctx) {
         this.context = ctx;
         PluginDatabaseManager db = ctx.getDatabaseManager();
-        String prefix = db.getPrefix();
+        String prefix = db.getSchemaName();
         this.btnPrefix = prefix + BTN_HANDLER;
         this.modalPrefix = prefix + MODAL_HANDLER;
         this.menuPrefix = prefix + MENU_HANDLER;
         initializeDatabase(db);
         initializeLavaPlayer();
         this.viewBuilder = new MusicViewBuilder(btnPrefix, menuPrefix, queueRepo, historyRepo);
-        ctx.log("info", "%s initialized (v%s — Components v2)".formatted(ctx.getInfo().getName(), ctx.getInfo().getVersion()));
+        ctx.log("info", "%s (v%s) has initialized on '%s'".formatted(
+                ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent())
+        );
     }
 
     @OnShutdown
     public boolean onShutdown(PluginContext ctx) {
         musicManagers.values().forEach(m -> m.player.destroy());
         playerManager.shutdown();
+        ctx.log("info", "%s (v%s) graceful shutdown on '%s'".formatted(
+                ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent())
+        );
         return true;
     }
 
@@ -179,17 +186,15 @@ public class PudelMusicPlugin {
                 .setAllowSearch(true)
                 .setAllowDirectPlaylistIds(true)
                 .setAllowDirectVideoIds(true)
-                .setRemoteCipher("https://cipher.kikkia.dev/", "", context.getPudel().getUserAgent());
+                .setRemoteCipher("https://cipher.kikkia.dev/", null, context.getPudel().getUserAgent());
 
         YoutubeAudioSourceManager ytSourceManager = new YoutubeAudioSourceManager(
                 ytk,
-                new MusicWithThumbnail(),
                 new WebWithThumbnail(),
                 new MWebWithThumbnail(),
                 new WebEmbeddedWithThumbnail(),
                 new AndroidMusicWithThumbnail(),
                 new AndroidVrWithThumbnail(),
-                new IosWithThumbnail(),
                 new Tv(),
                 new TvHtml5SimplyWithThumbnail()
         );
@@ -199,8 +204,8 @@ public class PudelMusicPlugin {
                 com.sedmelluq.discord.lavaplayer.source.youtube.YoutubeAudioSourceManager.class
         );
 
-        /*String oauth2Api = "";
-        ytSourceManager.useOauth2(oauth2Api, !oauth2Api.isEmpty());*/
+        String oauth2Api = "";
+        ytSourceManager.useOauth2(oauth2Api, !oauth2Api.isEmpty());
         this.playerManager.registerSourceManager(ytSourceManager);
     }
 
@@ -542,14 +547,16 @@ public class PudelMusicPlugin {
                 hook.retrieveOriginal().queue(msg -> session.tempMessage = msg);
 
                 playerManager.loadItemOrdered(mgr, finalSearchPrefix + query, new AudioLoadResultHandler() {
-                    @Override public void trackLoaded(AudioTrack track) {
+                    @Override
+                    public void trackLoaded(AudioTrack track) {
                         mgr.scheduler.queue(track, userId);
                         session.lastAction = "🎵 Queued: " + truncate(track.getInfo().title, 40);
                         session.cleanupTemp();
                         updateSessionMessage(session, mgr);
                     }
 
-                    @Override public void playlistLoaded(AudioPlaylist playlist) {
+                    @Override
+                    public void playlistLoaded(AudioPlaylist playlist) {
                         if (playlist.isSearchResult()) {
                             handleSearchResults(session, playlist);
                         } else {
@@ -562,7 +569,8 @@ public class PudelMusicPlugin {
                         }
                     }
 
-                    @Override public void noMatches() {
+                    @Override
+                    public void noMatches() {
                         var hookRef = session.tempHook;
                         session.tempMessage = null;
                         session.tempHook = null;
@@ -580,7 +588,8 @@ public class PudelMusicPlugin {
                         }
                     }
 
-                    @Override public void loadFailed(FriendlyException exception) {
+                    @Override
+                    public void loadFailed(FriendlyException exception) {
                         var hookRef = session.tempHook;
                         session.tempMessage = null;
                         session.tempHook = null;
@@ -726,8 +735,8 @@ public class PudelMusicPlugin {
                         Separator.create(false, Separator.Spacing.SMALL),
                         TextDisplay.of(description),
                         Separator.create(true, Separator.Spacing.SMALL),
-                        net.dv8tion.jda.api.components.actionrow.ActionRow.of(
-                                net.dv8tion.jda.api.components.buttons.Button.primary(btnPrefix + "back", "🔙 Back to Player")
+                        ActionRow.of(
+                                Button.primary(btnPrefix + "back", "🔙 Back to Player")
                         )
                 ).withAccentColor(ACCENT_IDLE));
     }
@@ -825,7 +834,14 @@ public class PudelMusicPlugin {
         for (QueueEntry entry : errors) { entry.setStatus("QUEUE"); entry.setIsLooped(false); queueRepo.save(entry); }
 
         List<QueueEntry> played = queueRepo.query().where("guild_id", guildId).where("status", "PLAYED").list();
-        for (QueueEntry entry : played) { queueRepo.deleteById(entry.getId()); }
+        for (QueueEntry entry : played) {
+            if(entry.getIsLooped()){
+                entry.setStatus("QUEUE");
+                queueRepo.save(entry);
+            } else {
+                queueRepo.deleteById(entry.getId());
+            }
+        }
     }
 
     // ==================== AUDIO MANAGER ====================

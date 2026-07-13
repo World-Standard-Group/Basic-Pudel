@@ -268,4 +268,3 @@ public class MusicViewBuilder {
         return String.format("%02d:%02d", minutes, seconds);
     }
 }
-

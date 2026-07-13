@@ -109,7 +109,7 @@ public class PudelPlayfulTime {
     public void onEnable(PluginContext ctx) {
         this.ctx = ctx;
         PluginDatabaseManager db = ctx.getDatabaseManager();
-        String prefix = db.getPrefix();
+        String prefix = db.getSchemaName();
         this.btnPrefix = prefix + BTN_HANDLER;
         this.modalPrefix = prefix + MODAL_HANDLER;
         this.menuPrefix = prefix + MENU_HANDLER;
@@ -119,7 +119,9 @@ public class PudelPlayfulTime {
         this.fireHelper = new PrankFireHelper(containerRepo, collectionRepo, controlMessages, viewingContainer, random, modalPrefix, ACCENT_PRANK, panelBuilder);
         this.exportImportHelper = new PrankExportImportHelper(ctx, new ObjectMapper(), containerRepo, collectionRepo, controlMessages, modalPrefix, ACCENT_IO, panelBuilder);
 
-        ctx.log("info", "Pudel's Playful Time has initialized — let the pranks begin!");
+        ctx.log("info", "%s (v%s) has initialized on '%s'".formatted(
+                ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent())
+        );
     }
 
     @OnShutdown
@@ -129,6 +131,9 @@ public class PudelPlayfulTime {
         }
         controlMessages.clear();
         viewingContainer.clear();
+        ctx.log("info", "%s (v%s) graceful shutdown on '%s'".formatted(
+                ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent())
+        );
         return true;
     }
 
@@ -158,6 +163,14 @@ public class PudelPlayfulTime {
                     .uniqueIndex("prank_id")
                     .build();
             db.createTable(collectionSchema);
+        });
+
+        db.migrate(2, m -> {
+            m.dropIndex("prank_container","container_id");
+            m.createIndex("prank_container", true, "user_id", "container_id");
+
+            m.dropIndex("prank_collection","prank_id", "container_id");
+            m.createIndex("prank_collection", true, "prank_id", "container_id");
         });
     }
 

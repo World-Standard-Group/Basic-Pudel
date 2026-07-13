@@ -161,4 +161,3 @@ public class RoleColorService {
         roleRepo.save(mr);
     }
 }
-

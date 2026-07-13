@@ -86,13 +86,15 @@ public class PudelMessagePlugin {
     @OnEnable
     public void onEnable(PluginContext ctx) {
         this.context = ctx;
-        String prefix = ctx.getDatabaseManager().getPrefix();
+        String prefix = ctx.getDatabaseManager().getSchemaName();
         this.buttonPrefix = prefix + BUTTON_HANDLER;
         this.modalPrefix = prefix + MODAL_HANDLER;
         this.menuPrefix = prefix + MENU_HANDLER;
         this.viewBuilder = new EmbedViewBuilder(buttonPrefix);
         this.modalBuilder = new EmbedModalBuilder(modalPrefix, menuPrefix);
-        ctx.log("info", "%s initialized (v%s — Components v2)".formatted(ctx.getInfo().getName(), ctx.getInfo().getVersion()));
+        ctx.log("info", "%s (v%s) has initialized on '%s'".formatted(
+                ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent())
+        );
     }
 
     @OnShutdown
@@ -103,6 +105,9 @@ public class PudelMessagePlugin {
             }
         }
         activeSessions.clear();
+        ctx.log("info", "%s (v%s) graceful shutdown on '%s'".formatted(
+                ctx.getInfo().getName(), ctx.getInfo().getVersion(), ctx.getPudel().getUserAgent())
+        );
         return true;
     }
 
