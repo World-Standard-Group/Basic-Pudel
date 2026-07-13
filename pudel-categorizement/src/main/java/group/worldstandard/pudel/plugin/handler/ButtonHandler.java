@@ -93,7 +93,7 @@ public class ButtonHandler {
     }
 
     private boolean isPermissionPanelButton(String id) {
-        return id.startsWith("perm_") || id.startsWith("group_")
+        return id.startsWith("perm_")
                 || id.equals("confirm") || id.equals("perm_reset") || id.equals("perm_back")
                 || id.equals("confirm_save") || id.equals("confirm_cancel");
     }
@@ -327,23 +327,20 @@ public class ButtonHandler {
                                         Member member, boolean hasAuth) {
         String buttonId = event.getComponentId().substring(btnPrefix.length());
 
+        // Handle pagination: previous / next page
+        if (buttonId.equals("perm_prev") || buttonId.equals("perm_next")) {
+            int page = sessionManager.getActivePermPage(userId);
+            sessionManager.setActivePermPage(userId, page + (buttonId.equals("perm_next") ? 1 : -1));
+            event.editMessage(panelBuilder.buildPermissionPanel(userId, hasAuth).build()).queue();
+            return;
+        }
+
         // Handle permission state toggle (perm_<PERM_NAME>)
         if (buttonId.startsWith("perm_")) {
             if (!hasAuth) { replyNoPermission(event); return; }
             String permName = buttonId.substring("perm_".length());
             togglePermState(userId, permName);
             event.editMessage(panelBuilder.buildPermissionPanel(userId, hasAuth).build()).queue();
-            return;
-        }
-
-        // Handle group navigation (group_<SECTION>)
-        if (buttonId.startsWith("group_")) {
-            String sectionName = buttonId.substring("group_".length());
-            try {
-                PanelBuilder.PermSection section = PanelBuilder.PermSection.valueOf(sectionName);
-                sessionManager.setActivePermSection(userId, section);
-                event.editMessage(panelBuilder.buildPermissionPanel(userId, hasAuth).build()).queue();
-            } catch (IllegalArgumentException ignored) {}
             return;
         }
 
@@ -355,26 +352,20 @@ public class ButtonHandler {
             }
             case "perm_reset" -> {
                 if (!hasAuth) { replyNoPermission(event); return; }
-                // Reset only current section
+                // Reset all permissions back to original state
                 String profileName = sessionManager.getEditingProfileName(userId);
                 if (profileName != null) {
-                    PanelBuilder.PermSection activeSection = sessionManager.getActivePermSection(userId);
                     LinkedHashMap<String, String> originalState = permissionService.loadProfilePermState(guildId, profileName);
                     LinkedHashMap<String, String> currentState = sessionManager.getTempPermState(userId);
                     if (currentState != null) {
-                        // Only reset permissions in current section
-                        for (PanelBuilder.PermInfo pi : panelBuilder.MANAGEABLE_PERMISSIONS) {
-                            if (pi.section() == activeSection) {
-                                String permName = pi.perm().name();
-                                currentState.put(permName, originalState.getOrDefault(permName, "INHERIT"));
-                            }
-                        }
+                        currentState.clear();
+                        currentState.putAll(originalState);
                     }
                 }
                 event.editMessage(panelBuilder.buildPermissionPanel(userId, hasAuth).build()).queue();
             }
             case "perm_back" -> {
-                sessionManager.removeActivePermSection(userId);
+                sessionManager.removeActivePermPage(userId);
                 sessionManager.removeEditingProfileName(userId);
                 sessionManager.removeTempPermState(userId);
                 sessionManager.removeOriginalPermState(userId);
@@ -385,10 +376,8 @@ public class ButtonHandler {
                 saveProfilePermState(userId, guildId);
                 event.editMessage(panelBuilder.buildSettingPanel(guild, member).build()).queue();
             }
-            case "confirm_cancel" -> {
-                // Go back to group page
-                event.editMessage(panelBuilder.buildPermissionPanel(userId, hasAuth).build()).queue();
-            }
+            case "confirm_cancel" -> // Go back to permission page
+                    event.editMessage(panelBuilder.buildPermissionPanel(userId, hasAuth).build()).queue();
         }
     }
 
@@ -428,7 +417,7 @@ public class ButtonHandler {
     private void handleBackMain(ButtonInteractionEvent event, String userId,
                                  Guild guild,
                                  Member member) {
-        sessionManager.removeActivePermSection(userId);
+        sessionManager.removeActivePermPage(userId);
         sessionManager.removeEditingProfileName(userId);
         sessionManager.removeTempPermState(userId);
         sessionManager.removeOriginalPermState(userId);
@@ -457,7 +446,7 @@ public class ButtonHandler {
         String profileName = sessionManager.getEditingProfileName(userId);
         if (state == null || profileName == null) return;
         permissionService.saveProfilePermState(guildId, profileName, state);
-        sessionManager.removeActivePermSection(userId);
+        sessionManager.removeActivePermPage(userId);
         sessionManager.removeEditingProfileName(userId);
         sessionManager.removeTempPermState(userId);
         sessionManager.removeOriginalPermState(userId);

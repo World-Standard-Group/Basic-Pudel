@@ -1,6 +1,5 @@
 package group.worldstandard.pudel.plugin.session;
 
-import group.worldstandard.pudel.plugin.builder.PanelBuilder.PermSection;
 import net.dv8tion.jda.api.entities.Message;
 
 import java.util.LinkedHashMap;
@@ -15,8 +14,8 @@ public class SessionManager {
 
     /** Ephemeral control panel message per user (userId -> Message). */
     private final Map<String, Message> controlMessages = new ConcurrentHashMap<>();
-    /** Currently active permission section per user. */
-    private final Map<String, PermSection> activePermSection = new ConcurrentHashMap<>();
+    /** Currently active permission page per user (0-based, pagination of permissions). */
+    private final Map<String, Integer> activePermPage = new ConcurrentHashMap<>();
     /** Currently editing profile name per user. */
     private final Map<String, String> editingProfileName = new ConcurrentHashMap<>();
     /** Temporary permission state per user: permEnumName -> "ALLOW"/"INHERIT"/"DENY". */
@@ -42,18 +41,18 @@ public class SessionManager {
         return controlMessages.remove(userId);
     }
 
-    // ==================== ACTIVE PERMISSION SECTION ====================
+    // ==================== ACTIVE PERMISSION PAGE ====================
 
-    public PermSection getActivePermSection(String userId) {
-        return activePermSection.getOrDefault(userId, PermSection.MANAGEMENT);
+    public int getActivePermPage(String userId) {
+        return activePermPage.getOrDefault(userId, 0);
     }
 
-    public void setActivePermSection(String userId, PermSection section) {
-        activePermSection.put(userId, section);
+    public void setActivePermPage(String userId, int page) {
+        activePermPage.put(userId, Math.max(0, page));
     }
 
-    public void removeActivePermSection(String userId) {
-        activePermSection.remove(userId);
+    public void removeActivePermPage(String userId) {
+        activePermPage.remove(userId);
     }
 
     // ==================== ORIGINAL PERMISSION STATE ====================
@@ -133,7 +132,7 @@ public class SessionManager {
      */
     public void clearUserSession(String userId) {
         removeControlMessage(userId);
-        removeActivePermSection(userId);
+        removeActivePermPage(userId);
         removeEditingProfileName(userId);
         removeTempPermState(userId);
         removeOriginalPermState(userId);
@@ -149,7 +148,7 @@ public class SessionManager {
             try { msg.delete().queue(null, _ -> {}); } catch (Exception ignored) {}
         });
         controlMessages.clear();
-        activePermSection.clear();
+        activePermPage.clear();
         editingProfileName.clear();
         tempPermState.clear();
         originalPermState.clear();

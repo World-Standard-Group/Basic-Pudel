@@ -12,7 +12,6 @@ import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.channel.concrete.Category;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -63,7 +62,7 @@ public class SelectMenuHandler {
     private void handleProfileView(StringSelectInteractionEvent event, String userId,
                                     String guildId, boolean hasAuth) {
         sessionManager.setEditingProfileName(userId, event.getValues().getFirst());
-        sessionManager.setActivePermSection(userId, PanelBuilder.PermSection.MANAGEMENT);
+        sessionManager.setActivePermPage(userId, 0);
         String profileName = event.getValues().getFirst();
         LinkedHashMap<String, String> state = permissionService.loadProfilePermState(guildId, profileName);
         sessionManager.putTempPermState(userId, state);

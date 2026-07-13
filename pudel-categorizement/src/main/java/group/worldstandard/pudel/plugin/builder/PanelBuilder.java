@@ -226,68 +226,53 @@ public class PanelBuilder {
 
     // ==================== PERMISSION PANEL ====================
 
-    public record PermInfo(Permission perm, String category, String displayName, PermSection section) {}
-
-    public enum PermSection{
-        MANAGEMENT("Management Ability"),
-        USER("User Ability"),
-        OTHER("Other Ability");
-
-        private final String section;
-
-        PermSection(String section){
-            this.section = section;
-        }
-
-        public String getSection() {
-            return section;
-        }
-    }
+    public record PermInfo(Permission perm, String category, String displayName) {}
 
     public static final List<PermInfo> MANAGEABLE_PERMISSIONS = List.of(
-            new PermInfo(Permission.MANAGE_CHANNEL, "Channel", "Manage Channel", PermSection.MANAGEMENT),
-            new PermInfo(Permission.MANAGE_PERMISSIONS, "Channel", "Manage Permission", PermSection.MANAGEMENT),
-            new PermInfo(Permission.MANAGE_WEBHOOKS, "Channel", "Manage Webhooks", PermSection.MANAGEMENT),
-            new PermInfo(Permission.MANAGE_EVENTS, "Channel", "Manage Events", PermSection.MANAGEMENT),
-            new PermInfo(Permission.CREATE_SCHEDULED_EVENTS, "Channel", "Create Events", PermSection.MANAGEMENT),
-            new PermInfo(Permission.CREATE_INSTANT_INVITE, "Channel", "Create Invite", PermSection.MANAGEMENT),
-            new PermInfo(Permission.MESSAGE_MENTION_EVERYONE, "Message", "Mention Ability `@`", PermSection.MANAGEMENT),
-            new PermInfo(Permission.MESSAGE_MANAGE, "Message", "Manage Messages", PermSection.MANAGEMENT),
-            new PermInfo(Permission.MANAGE_THREADS, "Message", "Manage Threads & Posts", PermSection.MANAGEMENT),
-            new PermInfo(Permission.MESSAGE_SEND_POLLS, "Message", "Create Polls", PermSection.MANAGEMENT),
-            new PermInfo(Permission.VOICE_MUTE_OTHERS, "Voice", "Mute Members", PermSection.MANAGEMENT),
-            new PermInfo(Permission.VOICE_DEAF_OTHERS, "Voice", "Deafen Members", PermSection.MANAGEMENT),
-            new PermInfo(Permission.VOICE_MOVE_OTHERS, "Voice", "Move Members", PermSection.MANAGEMENT),
-            new PermInfo(Permission.MESSAGE_SEND, "Message", "Send Message & Posts", PermSection.USER),
-            new PermInfo(Permission.CREATE_PUBLIC_THREADS, "Message", "Create Public Threads", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_EXT_EMOJI, "Message", "Use External Emojis", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_EXT_STICKER, "Message", "Use External Stickers", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_SEND_IN_THREADS, "Message", "Send in Threads & Posts", PermSection.USER),
-            new PermInfo(Permission.CREATE_PRIVATE_THREADS, "Message", "Create Private Threads", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_EMBED_LINKS, "Message", "Embed Links", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_ATTACH_FILES, "Message", "Attach Files", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_ADD_REACTION, "Message", "Add Reactions", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_HISTORY, "Message", "Read Message History", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_TTS, "Message", "Send TTS Message", PermSection.USER),
-            new PermInfo(Permission.MESSAGE_ATTACH_VOICE_MESSAGE, "Message", "Send Voice Message", PermSection.USER),
-            new PermInfo(Permission.VOICE_CONNECT, "Voice", "Connect", PermSection.USER),
-            new PermInfo(Permission.VOICE_SPEAK, "Voice", "Speak", PermSection.USER),
-            new PermInfo(Permission.VOICE_STREAM, "Voice", "Video", PermSection.USER),
-            new PermInfo(Permission.VOICE_USE_SOUNDBOARD, "Voice", "Use Soundboard", PermSection.USER),
-            new PermInfo(Permission.VOICE_USE_EXTERNAL_SOUNDS, "Voice", "Use External Sounds", PermSection.USER),
-            new PermInfo(Permission.REQUEST_TO_SPEAK, "Voice", "Request to Speak", PermSection.USER),
-            new PermInfo(Permission.USE_APPLICATION_COMMANDS, "Channel", "Use App Commands", PermSection.OTHER),
-            new PermInfo(Permission.USE_EXTERNAL_APPLICATIONS, "Channel", "Use External Apps", PermSection.OTHER),
-            new PermInfo(Permission.USE_EMBEDDED_ACTIVITIES, "Voice", "Use Activities", PermSection.OTHER),
-            new PermInfo(Permission.VOICE_USE_VAD, "Voice", "Use Voice Activity", PermSection.OTHER),
-            new PermInfo(Permission.PRIORITY_SPEAKER, "Voice", "Priority Speaker", PermSection.OTHER),
-            new PermInfo(Permission.VOICE_SET_STATUS, "Voice", "Set Voice Status", PermSection.OTHER)
+            new PermInfo(Permission.MANAGE_CHANNEL, "Channel", "Manage Channel"),
+            new PermInfo(Permission.MANAGE_PERMISSIONS, "Channel", "Manage Permission"),
+            new PermInfo(Permission.MANAGE_WEBHOOKS, "Channel", "Manage Webhooks"),
+            new PermInfo(Permission.MANAGE_EVENTS, "Channel", "Manage Events"),
+            new PermInfo(Permission.CREATE_SCHEDULED_EVENTS, "Channel", "Create Events"),
+            new PermInfo(Permission.CREATE_INSTANT_INVITE, "Channel", "Create Invite"),
+            new PermInfo(Permission.MESSAGE_MENTION_EVERYONE, "Message", "Mention Ability `@`"),
+            new PermInfo(Permission.MESSAGE_MANAGE, "Message", "Manage Messages"),
+            new PermInfo(Permission.MANAGE_THREADS, "Message", "Manage Threads & Posts"),
+            new PermInfo(Permission.MESSAGE_SEND_POLLS, "Message", "Create Polls"),
+            new PermInfo(Permission.VOICE_MUTE_OTHERS, "Voice", "Mute Members"),
+            new PermInfo(Permission.VOICE_DEAF_OTHERS, "Voice", "Deafen Members"),
+            new PermInfo(Permission.VOICE_MOVE_OTHERS, "Voice", "Move Members"),
+            new PermInfo(Permission.MESSAGE_SEND, "Message", "Send Message & Posts"),
+            new PermInfo(Permission.CREATE_PUBLIC_THREADS, "Message", "Create Public Threads"),
+            new PermInfo(Permission.MESSAGE_EXT_EMOJI, "Message", "Use External Emojis"),
+            new PermInfo(Permission.MESSAGE_EXT_STICKER, "Message", "Use External Stickers"),
+            new PermInfo(Permission.MESSAGE_SEND_IN_THREADS, "Message", "Send in Threads & Posts"),
+            new PermInfo(Permission.CREATE_PRIVATE_THREADS, "Message", "Create Private Threads"),
+            new PermInfo(Permission.MESSAGE_EMBED_LINKS, "Message", "Embed Links"),
+            new PermInfo(Permission.MESSAGE_ATTACH_FILES, "Message", "Attach Files"),
+            new PermInfo(Permission.MESSAGE_ADD_REACTION, "Message", "Add Reactions"),
+            new PermInfo(Permission.MESSAGE_HISTORY, "Message", "Read Message History"),
+            new PermInfo(Permission.MESSAGE_TTS, "Message", "Send TTS Message"),
+            new PermInfo(Permission.MESSAGE_ATTACH_VOICE_MESSAGE, "Message", "Send Voice Message"),
+            new PermInfo(Permission.VOICE_CONNECT, "Voice", "Connect"),
+            new PermInfo(Permission.VOICE_SPEAK, "Voice", "Speak"),
+            new PermInfo(Permission.VOICE_STREAM, "Voice", "Video"),
+            new PermInfo(Permission.VOICE_USE_SOUNDBOARD, "Voice", "Use Soundboard"),
+            new PermInfo(Permission.VOICE_USE_EXTERNAL_SOUNDS, "Voice", "Use External Sounds"),
+            new PermInfo(Permission.REQUEST_TO_SPEAK, "Voice", "Request to Speak"),
+            new PermInfo(Permission.USE_APPLICATION_COMMANDS, "Channel", "Use App Commands"),
+            new PermInfo(Permission.USE_EXTERNAL_APPLICATIONS, "Channel", "Use External Apps"),
+            new PermInfo(Permission.USE_EMBEDDED_ACTIVITIES, "Voice", "Use Activities"),
+            new PermInfo(Permission.VOICE_USE_VAD, "Voice", "Use Voice Activity"),
+            new PermInfo(Permission.PRIORITY_SPEAKER, "Voice", "Priority Speaker"),
+            new PermInfo(Permission.VOICE_SET_STATUS, "Voice", "Set Voice Status")
     );
+
+    private static final int PERM_PAGE_SIZE = 10;
 
     public MessageEditBuilder buildPermissionPanel(String userId, boolean hasAuth) {
         String profileName = sessionManager.getEditingProfileName(userId) != null
                 ? sessionManager.getEditingProfileName(userId) : "Unknown";
-        PermSection activeSection = sessionManager.getActivePermSection(userId);
         LinkedHashMap<String, String> state = sessionManager.getTempPermState(userId);
 
         if (state == null) {
@@ -296,15 +281,24 @@ public class PanelBuilder {
                             .withAccentColor(ACCENT_DANGER));
         }
 
+        int total = MANAGEABLE_PERMISSIONS.size();
+        int totalPages = Math.max(1, (int) Math.ceil((double) total / PERM_PAGE_SIZE));
+        int page = sessionManager.getActivePermPage(userId);
+        if (page < 0) page = 0;
+        if (page >= totalPages) page = totalPages - 1;
+
+        int start = page * PERM_PAGE_SIZE;
+        int end = Math.min(start + PERM_PAGE_SIZE, total);
+
         List<ContainerChildComponent> components = new ArrayList<>();
         components.add(TextDisplay.of("# 📋 Profile: **" + profileName + "**"));
         components.add(Separator.create(true, Separator.Spacing.SMALL));
-        components.add(TextDisplay.of("### " + activeSection.getSection()));
+        components.add(TextDisplay.of("### Permissions — Page %d / %d".formatted(page + 1, totalPages)));
         components.add(Separator.create(false, Separator.Spacing.SMALL));
 
-        // Add permission buttons for active section
-        for (PermInfo pi : MANAGEABLE_PERMISSIONS) {
-            if (pi.section() != activeSection) continue;
+        // Waterfall list: render the current page of permissions
+        for (int i = start; i < end; i++) {
+            PermInfo pi = MANAGEABLE_PERMISSIONS.get(i);
             String permName = pi.perm().name();
             String stateStr = state.getOrDefault(permName, "INHERIT");
             Button btn = switch (stateStr) {
@@ -319,11 +313,11 @@ public class PanelBuilder {
         components.add(Separator.create(true, Separator.Spacing.SMALL));
         components.add(TextDisplay.of("-# 🟢 Green = Allowed · 🔴 Red = Denied · ⬜ Gray = Inherited"));
 
-        // Group navigation buttons
+        // Pagination buttons (previous / current / next)
         components.add(ActionRow.of(
-                Button.primary(btnPrefix + "group_MANAGEMENT", "⚙️ Management Group").withDisabled(activeSection == PermSection.MANAGEMENT),
-                Button.primary(btnPrefix + "group_USER", "👤 User Group").withDisabled(activeSection == PermSection.USER),
-                Button.primary(btnPrefix + "group_OTHER", "🔧 Other Group").withDisabled(activeSection == PermSection.OTHER)
+                Button.secondary(btnPrefix + "perm_prev", "⬅️ Previous").withDisabled(page <= 0),
+                Button.secondary(btnPrefix + "perm_page", "📄 %d / %d".formatted(page + 1, totalPages)).withDisabled(true),
+                Button.primary(btnPrefix + "perm_next", "Next ➡️").withDisabled(page >= totalPages - 1)
         ));
         components.add(ActionRow.of(
                 Button.secondary(btnPrefix + "perm_back", "⬅️ Back"),
